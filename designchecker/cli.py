@@ -22,12 +22,13 @@ from .validator import validate
 
 
 def _find_project_root() -> Path:
-    """Risale dalla cwd cercando la radice del progetto (quella con rules/)."""
-    current = Path.cwd()
-    for candidate in (current, *current.parents):
+    """Trova la radice del progetto (quella con rules/): prima dalla cwd,
+    poi dalla posizione del pacchetto (per il wrapper globale in ~/.local/bin)."""
+    candidates = [Path.cwd(), *Path.cwd().parents, Path(__file__).resolve().parent.parent]
+    for candidate in candidates:
         if (candidate / "rules").is_dir():
             return candidate
-    return current
+    return Path.cwd()
 
 
 def main(argv: list[str] | None = None) -> None:

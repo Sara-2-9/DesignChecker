@@ -129,3 +129,13 @@ Ogni decisione ha: data, contesto, decisione, motivazione. Le decisioni si posso
 **Contesto:** Figma, codice, screenshot: tre sorgenti con fedeltà diverse.
 **Decisione:** tutti producono screen JSON con `meta.source` e `meta.confidence` per nodo, e tutti sfociano nello stesso audit del validatore. Comandi: `dc link figma <url>`, `dc screens`, `dc import figma <frame>`, `dc import code <path>`, `dc import shot <png>` (quest'ultimo con provider vision, v0.3). Mappatura frame→catalogo in cascata: istanze nominate → convenzione naming → euristica LLM.
 **Motivazione:** Figma dà geometria perfetta, codice dà semantica perfetta, screenshot copre il resto.
+
+## D25 — Distribuzione CLI: wrapper globale, venv invisibile
+**Contesto:** l'utente non deve digitare `python3 -m designchecker` né attivare il venv a mano.
+**Decisione:** `install.sh` (una tantum) crea il venv, installa le dipendenze e scrive un wrapper eseguibile in `~/.local/bin/designchecker` (+ alias `dc`) che invoca il Python del venv con PYTHONPATH puntato al progetto. Il venv esiste ancora ma è invisibile; il comando funziona da qualsiasi directory (root detection: cwd → parenti → package dir).
+**Motivazione:** UX da tool vero, zero attrito quotidiano.
+
+## D26 — Rate limit Figma: caching ora, plugin come strada senza limiti
+**Contesto:** la REST API ha rate limit tiered (severi su piano Starter: ~10 req/min Tier 1; seat View/Collab ~20/mese).
+**Decisione:** (1) MVP: chiamate minime (`depth=2` per l'elenco, `/nodes` solo per il frame scelto) + caching del tree su disco (`.designchecker/cache/`). (2) La soluzione strutturale è il **plugin DesignChecker** (v0.4): la Plugin API gira *dentro* Figma (desktop o browser) in locale — zero chiamate REST, zero rate limit. (3) Un "MCP custom" da solo non risolve: l'MCP ufficiale è chiuso ai client approvati (D21); i bridge MCP community esistenti sono infatti plugin Figma con un server locale davanti — cioè esattamente la nostra strada (2). (4) L'app desktop Figma non espone API proprie: il plugin è il modo in cui si "usa l'app installata".
+**Motivazione:** non combattere i limiti: aggirarli architetturalmente con il componente che dobbiamo comunque costruire.

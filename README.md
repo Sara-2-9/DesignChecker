@@ -29,10 +29,19 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 🟢 **MVP + v0.2 + importer Figma funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen verso progetto Expo reale + **import da file Figma collegato con audit immediato**. 40 test OK. Decisioni D1–D24.
 
-### Uso (dalla radice del progetto)
+### Installazione (una volta sola)
 
 ```bash
-pip install pyyaml        # unica dipendenza
+cd ~/Desktop/DesignChecker
+bash install.sh        # crea venv + dipendenze + comando globale
+# apri un nuovo terminale, poi da QUALSIASI cartella:
+designchecker version
+```
+
+### Uso
+
+```bash
+# dentro il progetto puoi anche usare: python3 -m designchecker ...
 
 # Validazione
 python3 -m designchecker validate examples/home.screen.json           # conforme → exit 0
