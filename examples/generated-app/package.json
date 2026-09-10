@@ -1,0 +1,20 @@
+{
+  "name": "spesecondivise-preview",
+  "version": "0.1.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "android": "expo start --android"
+  },
+  "dependencies": {
+    "expo": "^57.0.0",
+    "expo-router": "~7.0.0",
+    "expo-status-bar": "*",
+    "react": "19.2.0",
+    "react-native": "0.85.0",
+    "react-native-safe-area-context": "*",
+    "react-native-screens": "*"
+  },
+  "note": "Dopo npm install: esegui `npx expo install --fix` per allineare le versioni all'SDK installato."
+}

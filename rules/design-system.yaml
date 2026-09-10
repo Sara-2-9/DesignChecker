@@ -1,0 +1,35 @@
+# Regole del design system: token DTCG come unica fonte di stile (decisione D12)
+# Fonte: W3C Design Tokens Community Group, formato 2025.10
+# https://www.designtokens.org/ + TR https://www.w3.org/community/design-tokens/
+
+rules:
+
+  - id: ds.no-hardcoded-value
+    source: "DesignChecker — D12 (token DTCG only)"
+    source_url: "https://www.designtokens.org/"
+    platform: both
+    severity: error
+    check: no_hardcoded_value
+    message: "'{node}' ha un valore hard-coded ({value} in '{path}') invece di un riferimento a token"
+    suggestion: "Sostituisci con un riferimento {color…}/{spacing…}; se il token manca, aggiungilo a tokens.json"
+    rule_version: "2025.10"
+
+  - id: ds.token-resolvable
+    source: "DesignChecker — D12 (token DTCG only)"
+    source_url: "https://www.designtokens.org/"
+    platform: both
+    severity: error
+    check: token_resolvable
+    message: "'{node}' referenzia il token {value} (campo '{path}') che non esiste in tokens.json"
+    suggestion: "Correggi il path (refuso?) o definisci il token"
+    rule_version: "2025.10"
+
+  - id: ds.spacing-tokenized
+    source: "DesignChecker — D12 (token DTCG only)"
+    source_url: "https://www.designtokens.org/"
+    platform: both
+    severity: warning
+    check: gap_tokenized
+    message: "In '{node}' layout.gap e' un numero nudo ({actual}) invece di un token di spaziatura"
+    suggestion: "Usa {spacing.N}: la scala spaziature coerente e' la meta' del design"
+    rule_version: "2025.10"

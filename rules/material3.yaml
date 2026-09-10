@@ -1,0 +1,96 @@
+# Material Design 3 (incluso aggiornamento M3 Expressive, 2026)
+# Fonte: https://m3.material.io
+# Verificato: settembre 2026 — M3 Expressive aggiunge shape/motion, i vincoli
+# numerici (touch target, altezze componenti) sono invariati.
+
+rules:
+
+  - id: m3.touch-target.min
+    source: "Material Design 3 — Accessibility / Touch targets"
+    source_url: "https://m3.material.io/foundations/interaction/states/overview"
+    platform: android
+    severity: error
+    check: touch_target_min
+    params: { min: 48, unit: dp }
+    message: "'{node}' e' {actual}dp, sotto il minimo Android di {min}dp"
+    suggestion: "Porta l'area touch ad almeno 48x48dp"
+    rule_version: "2026-06"
+
+  - id: m3.target-spacing
+    source: "Material Design 3 — Accessibility"
+    source_url: "https://m3.material.io/foundations/accessible-design/overview"
+    platform: android
+    severity: warning
+    check: gap_min
+    params: { min: 8 }
+    message: "In '{node}' i target interattivi distano {actual}dp, minimo {min}dp (rischio tocchi accidentali)"
+    suggestion: "Aumenta layout.gap ad almeno {spacing.2} (8dp)"
+    rule_version: "2026-06"
+
+  - id: m3.fab.size
+    source: "Material Design 3 — Floating action button"
+    source_url: "https://m3.material.io/components/floating-action-button/specs"
+    platform: android
+    severity: error
+    check: component_size
+    params: { type: Fab, size: 56 }
+    message: "Il FAB '{node}' e' {actual}dp, la misura standard M3 e' {expected}dp"
+    suggestion: "Usa 56dp (o la variante small/large solo se motivata)"
+    rule_version: "2026-06"
+
+  - id: m3.nav-bar.height
+    source: "Material Design 3 — Navigation bar"
+    source_url: "https://m3.material.io/components/navigation-bar/specs"
+    platform: android
+    severity: error
+    check: component_height_range
+    params: { type: TabBar, min: 48, max: 80 }
+    message: "La navigation bar '{node}' e' {actual}dp, il range M3 e' {min}-{max}dp"
+    suggestion: "Rispetta l'altezza del componente di sistema"
+    rule_version: "2026-06"
+
+  - id: m3.text-field.height
+    source: "Material Design 3 — Text fields"
+    source_url: "https://m3.material.io/components/text-fields/specs"
+    platform: android
+    severity: error
+    check: component_height_range
+    params: { type: TextField, min: 48, max: 56 }
+    message: "Il text field '{node}' e' {actual}dp, il range M3 e' {min}-{max}dp"
+    suggestion: "Altezza container tra 48 e 56dp"
+    rule_version: "2026-06"
+
+  - id: m3.min-text-size
+    source: "Material Design 3 — Typography"
+    source_url: "https://m3.material.io/styles/typography/type-scale-tokens"
+    platform: android
+    severity: warning
+    check: text_min_size
+    params: { min: 12 }
+    message: "Il testo '{node}' (variante {value}) e' {actual}sp, sotto il minimo M3 di {min}sp"
+    suggestion: "La scala tipografica M3 parte da 12sp (label small)"
+    rule_version: "2026-06"
+
+  - id: m3.one-fab
+    source: "Material Design 3 — Floating action button (usage)"
+    source_url: "https://m3.material.io/components/floating-action-button/guidelines"
+    platform: android
+    severity: warning
+    check: max_instances
+    params: { type: Fab, max: 1 }
+    scope: screen
+    message: "Trovati {count} FAB ({value}) — M3 prevede UN solo FAB per schermata"
+    suggestion: "Un FAB = un'azione primaria. Le altre azioni vanno altrove"
+    rule_version: "2026-06"
+
+  - id: m3.expressive.shape-tokens
+    source: "Material Design 3 Expressive — Shape system"
+    source_url: "https://m3.material.io/styles/shape/overview"
+    platform: android
+    severity: warning
+    check: token_group_exists
+    params: { group: radius }
+    scope: screen
+    message: "Il progetto non definisce token di raggio ('{value}'): M3 Expressive li usa come sistema"
+    suggestion: "Aggiungi radius.sm/md/lg ai token DTCG del progetto"
+    rule_version: "2026-06"

@@ -1,0 +1,99 @@
+# Catalogo componenti di DesignChecker (docs/04 §4)
+# Ogni tipo dichiara i TRAITS: il validatore controlla i traits, non i tipi,
+# quindi i componenti custom futuri vengono validati automaticamente (D11).
+
+components:
+
+  # === CONTENITORI ===
+  - type: Screen
+    maps_to: { rn: "SafeAreaView + View", figma: "FRAME" }
+    traits: [container, top_level]
+    rules_apply: [safe-area]
+
+  - type: Stack
+    maps_to: { rn: "View", figma: "FRAME(auto-layout)" }
+    traits: [container]
+
+  - type: Card
+    maps_to: { rn: "View", figma: "FRAME(auto-layout)" }
+    traits: [container, surface]
+    rules_apply: [contrast-surface]
+
+  - type: List
+    maps_to: { rn: "FlatList", figma: "FRAME + repeated instances" }
+    traits: [container, scrollable]
+    rules_apply: [flatlist-not-map]
+
+  # === TESTO ===
+  - type: Text
+    maps_to: { rn: "Text", figma: "TEXT" }
+    traits: [text]
+    props: { content: string, variant: "title|heading|body|caption" }
+    rules_apply: [contrast-text, dynamic-type]
+
+  # === INTERATTIVI ===
+  - type: Button
+    maps_to: { rn: "Pressable", figma: "COMPONENT" }
+    traits: [interactive, touch_target, has_label]
+    props: { label: string, action: action, variant: "primary|secondary|destructive" }
+    defaults: { min_height: 48 }
+    rules_apply: [touch-target, contrast-text, a11y-label, one-primary-action]
+
+  - type: Fab
+    maps_to: { rn: "Pressable", figma: "COMPONENT" }
+    traits: [interactive, touch_target, single_action]
+    defaults: { size: 56 }
+    rules_apply: [touch-target, a11y-label, safe-area-position, one-primary-action]
+
+  - type: TextField
+    maps_to: { rn: "TextInput", figma: "COMPONENT" }
+    traits: [interactive, touch_target, form_input]
+    defaults: { min_height: 48 }
+    rules_apply: [touch-target, a11y-label, contrast-text]
+
+  - type: ListRow
+    maps_to: { rn: "Pressable", figma: "COMPONENT" }
+    traits: [interactive, touch_target]
+    defaults: { min_height: 44 }
+    rules_apply: [touch-target, a11y-label]
+
+  - type: Switch
+    maps_to: { rn: "Switch", figma: "COMPONENT" }
+    traits: [interactive, touch_target]
+    defaults: { min_height: 44 }
+    rules_apply: [touch-target, a11y-label]
+
+  # === NAVIGAZIONE ===
+  - type: TabBar
+    maps_to: { rn: "Expo Router Native Tabs (SDK 55)", figma: "COMPONENT" }
+    traits: [navigation_chrome]
+    rules_apply: [max-5-tabs, native-chrome, icon-plus-label]
+
+  - type: AppHeader
+    maps_to: { rn: "View", figma: "FRAME" }
+    traits: [navigation_chrome, text]
+    rules_apply: [safe-area]
+
+  # === MEDIA ===
+  - type: Icon
+    maps_to: { rn: "@react-native-vector-icons/* o @expo/material-symbols (SDK 56+, non @expo/vector-icons — deprecato)", figma: "VECTOR" }
+    traits: [decorative]
+    rules_apply: [icon-with-label-if-critical]
+
+  - type: Image
+    maps_to: { rn: "expo-image", figma: "RECTANGLE(fill)" }
+    traits: [media]
+    rules_apply: [a11y-label-if-informative]
+
+  # === STATI ===
+  - type: EmptyState
+    maps_to: { rn: "View + Text + Button", figma: "COMPONENT" }
+    traits: [container, text]
+
+  - type: ErrorState
+    maps_to: { rn: "View + Text + Button", figma: "COMPONENT" }
+    traits: [container, text]
+
+  - type: SkeletonList
+    maps_to: { rn: "View", figma: "COMPONENT" }
+    traits: [container]

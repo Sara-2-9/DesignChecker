@@ -1,0 +1,89 @@
+{
+  "schema_version": "0.1.0",
+  "meta": {
+    "id": "imported-home",
+    "name": "Home importata (app attuale, CON violazioni di test)",
+    "route": "/",
+    "status": "draft",
+    "source": { "kind": "imported", "confidence": 0.8 },
+    "updated_at": "2026-09-10T15:00:00Z"
+  },
+  "root": {
+    "id": "ScreenHome",
+    "type": "Screen",
+    "layout": { "direction": "column", "sizing": { "w": "fill", "h": "fill" } },
+    "style": { "background": "#FFFFFF" },
+    "children": [
+      {
+        "id": "header",
+        "type": "AppHeader",
+        "props": { "title": "Home" },
+        "layout": { "sizing": { "w": "fill", "h": "hug" } },
+        "style": { "color": "{color.text-primary}" }
+      },
+      {
+        "id": "balance-value",
+        "type": "Text",
+        "props": { "content": "24,50 €", "variant": "body" },
+        "layout": { "sizing": { "w": "hug", "h": "hug" } },
+        "style": { "color": "{color.success-light}" }
+      },
+      {
+        "id": "broken-ref-text",
+        "type": "Text",
+        "props": { "content": "Dettaglio", "variant": "caption" },
+        "layout": { "sizing": { "w": "hug", "h": "hug" } },
+        "style": { "color": "{color.brand.primari}" }
+      },
+      {
+        "id": "actions-row",
+        "type": "Stack",
+        "layout": { "direction": "row", "gap": "{spacing.1}", "sizing": { "w": "fill", "h": "hug" } },
+        "style": {},
+        "children": [
+          { "id": "edit-expense-btn", "type": "Button", "props": { "label": "Modifica", "min_height": 36, "action": "navigate:/edit", "variant": "primary" }, "layout": {}, "style": {}, "semantics": { "primary_action": true } },
+          { "id": "delete-expense-btn", "type": "Button", "props": { "label": "Elimina", "min_height": 40, "variant": "destructive" }, "layout": {}, "style": {}, "a11y": { "role": "button", "label": "Elimina spesa" }, "semantics": { "primary_action": true, "destructive": true } },
+          { "id": "b3", "type": "Button", "props": { "label": "A", "action": "back" }, "layout": {}, "style": {}, "a11y": { "role": "button", "label": "Azione 3" } },
+          { "id": "b4", "type": "Button", "props": { "label": "B", "action": "back" }, "layout": {}, "style": {}, "a11y": { "role": "button", "label": "Azione 4" } },
+          { "id": "b5", "type": "Button", "props": { "label": "C", "action": "back" }, "layout": {}, "style": {}, "a11y": { "role": "button", "label": "Azione 5" } },
+          { "id": "b6", "type": "Button", "props": { "label": "D", "action": "back" }, "layout": {}, "style": {}, "a11y": { "role": "button", "label": "Azione 6" } },
+          { "id": "b7", "type": "Button", "props": { "label": "E", "action": "back" }, "layout": {}, "style": {}, "a11y": { "role": "button", "label": "Azione 7" } },
+          { "id": "b8", "type": "Button", "props": { "label": "F", "action": "back" }, "layout": {}, "style": {}, "a11y": { "role": "button", "label": "Azione 8" } }
+        ]
+      },
+      {
+        "id": "quick-add",
+        "type": "Fab",
+        "props": { "icon": "plus", "action": "navigate:/add-expense" },
+        "layout": { "position": "top-trailing" },
+        "style": { "background": "{color.brand.primary}", "foreground": "{color.brand.on-primary}" },
+        "a11y": { "role": "button", "label": "Aggiungi spesa" },
+        "semantics": { "primary_action": true }
+      },
+      {
+        "id": "expense-list",
+        "type": "List",
+        "props": { "data_source": "expenses.recent" },
+        "layout": { "sizing": { "w": "fill", "h": "fill" } },
+        "style": {}
+      },
+      {
+        "id": "main-tabs",
+        "type": "TabBar",
+        "props": {
+          "tabs": [
+            { "id": "home", "icon": "house", "label": "Home", "route": "/" },
+            { "id": "groups", "icon": "person-2", "label": "Gruppi", "route": "/groups" },
+            { "id": "stats", "icon": "chart", "label": "Statistiche", "route": "/stats" },
+            { "id": "wallet", "icon": "wallet", "label": "Portafoglio", "route": "/wallet" },
+            { "id": "friends", "icon": "people", "label": "Amici", "route": "/friends" },
+            { "id": "profile", "icon": "person", "route": "/profile" }
+          ]
+        },
+        "layout": { "position": "bottom" },
+        "style": {},
+        "semantics": { "navigation_role": "root_tabs" }
+      }
+    ]
+  }
+}

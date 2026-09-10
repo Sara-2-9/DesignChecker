@@ -1,0 +1,156 @@
+# Convenzioni Expo / React Native
+# Fonti: documentazione ufficale Expo e React Native + blog Expo sulla struttura
+# delle cartelle (aggiornato gennaio 2026, default SDK 55).
+# Verificato: settembre 2026 — baseline SDK 57. Cambiamenti rilevanti:
+#   SDK 55: /src/app di default, Legacy Architecture rimossa, Native Tabs.
+#   SDK 56: Expo Router forkato da React Navigation (mai installarli insieme),
+#           @expo/vector-icons deprecato, Expo UI stabile, Hermes v1 default,
+#           Node >= 20.19.4, TypeScript 6, Xcode >= 26.4.
+#   SDK 57: prebuild pulisce le cartelle native di default, reanimated 4.5.
+#   Nota preview: Expo Go SDK 56+ non e' piu' su App Store/Play Store
+#   (Android: install via CLI; iOS: TestFlight / `eas go` / dev build).
+#
+# Le regole con `phase: codegen` NON girano sullo screen JSON: documentano i
+# controlli che il validatore eseguira' sul codice TypeScript generato.
+
+rules:
+
+  - id: expo.safe-area
+    source: "React Native — SafeAreaView / useSafeAreaInsets"
+    source_url: "https://reactnative.dev/docs/safeareaview"
+    platform: both
+    severity: error
+    check: safe_area_required
+    message: "Il layout top-level '{node}' non dichiara safe_area: i contenuti rischiano di finire sotto notch e barre di sistema"
+    suggestion: "safe_area: true nel layout radice (codegen: SafeAreaView / useSafeAreaInsets)"
+    rule_version: "sdk-57"
+
+  - id: expo.action-wired
+    source: "DesignChecker — D14 (prototipo provabile)"
+    platform: both
+    severity: warning
+    check: action_wired
+    message: "'{node}' e' interattivo ma senza azione"
+    suggestion: "Cablala (navigate:/…, submit, …) oppure marcala 'unimplemented'"
+    rule_version: "0.1"
+
+  - id: expo.kebab-case-ids
+    source: "Expo — folder structure best practices (default kebab-case, SDK 55)"
+    source_url: "https://expo.dev/blog/expo-app-folder-structure-best-practices"
+    platform: both
+    severity: warning
+    check: kebab_case_ids
+    message: "L'id '{value}' non e' kebab-case (default ufficiale dai template SDK 55)"
+    suggestion: "usa-nomi-cosi: diventeranno nomi di file nel codice generato"
+    rule_version: "sdk-57"
+
+  # ---- regole di codegen (documentate, eseguite sul codice generato) ----
+
+  - id: expo.pressable
+    source: "React Native — Pressable"
+    source_url: "https://reactnative.dev/docs/pressable"
+    platform: both
+    severity: warning
+    phase: codegen
+    check: null
+    message: "Componenti interattivi generati con Pressable (non Touchable* legacy)"
+    rule_version: "sdk-57"
+
+  - id: expo.flatlist-not-map
+    source: "React Native — FlatList"
+    source_url: "https://reactnative.dev/docs/flatlist"
+    platform: both
+    severity: warning
+    phase: codegen
+    check: null
+    message: "Liste di dati con FlatList, mai .map() dentro ScrollView"
+    rule_version: "sdk-57"
+
+  - id: expo.stylesheet-create
+    source: "Expo — folder structure best practices (stili colocati)"
+    source_url: "https://expo.dev/blog/expo-app-folder-structure-best-practices"
+    platform: both
+    severity: warning
+    phase: codegen
+    check: null
+    message: "StyleSheet.create in fondo al file componente (approccio moderno ufficiale)"
+    rule_version: "sdk-57"
+
+  - id: expo.src-folder
+    source: "Expo SDK 55 — default template"
+    source_url: "https://expo.dev/changelog/sdk-55"
+    platform: both
+    severity: error
+    phase: codegen
+    check: null
+    message: "Codice app in /src/app (default SDK 55), route snelli che ritornano screen da src/screens/"
+    rule_version: "sdk-57"
+
+  - id: expo.native-tabs
+    source: "Expo Router — Native Tabs (compound API da SDK 55)"
+    source_url: "https://docs.expo.dev/router/advanced/native-tabs/"
+    platform: both
+    severity: warning
+    phase: codegen
+    check: null
+    message: "Tab bar generata con Native Tabs (NativeTabs.Trigger.Icon/Label): chrome nativo, Liquid Glass su iOS 26+, safe area automatica"
+    rule_version: "sdk-57"
+
+  - id: expo.no-react-navigation
+    source: "Expo SDK 56 — Expo Router forkato da React Navigation"
+    source_url: "https://expo.dev/changelog/sdk-56"
+    platform: both
+    severity: error
+    phase: codegen
+    check: null
+    message: "Mai installare @react-navigation/* insieme a expo-router (SDK 56+: progetti divergenti, expo-doctor lo segnala)"
+    rule_version: "sdk-57"
+
+  - id: expo.vector-icons
+    source: "Expo SDK 56 — deprecazione @expo/vector-icons"
+    source_url: "https://expo.dev/changelog/sdk-56"
+    platform: both
+    severity: warning
+    phase: codegen
+    check: null
+    message: "Icone via @react-native-vector-icons/* o @expo/material-symbols (non @expo/vector-icons, deprecato)"
+    rule_version: "sdk-57"
+
+  - id: expo.expo-ui-components
+    source: "Expo SDK 56 — Expo UI stabile in produzione"
+    source_url: "https://expo.dev/changelog/sdk-56"
+    platform: both
+    severity: warning
+    phase: codegen
+    check: null
+    message: "Valutare i componenti universali Expo UI (Host, Row, Column, Button, BottomSheet) per UI nativa cross-platform"
+    rule_version: "sdk-57"
+
+  - id: expo.toolchain
+    source: "Expo SDK 56 — requisiti toolchain"
+    source_url: "https://expo.dev/changelog/sdk-56"
+    platform: both
+    severity: error
+    phase: codegen
+    check: null
+    message: "Toolchain minima: Node 20.19.4, TypeScript 6, Xcode 26.4, iOS minimo 16.4"
+    rule_version: "sdk-57"
+
+  - id: expo.no-mock-inline
+    source: "DesignChecker — D14 (data layer isolato)"
+    platform: both
+    severity: error
+    phase: codegen
+    check: null
+    message: "Nessun dato mock inline nei componenti: i dati passano solo da src/data/ (hook)"
+    rule_version: "0.1"
+
+  - id: expo.platform-variants
+    source: "Expo — platform-specific file extensions"
+    source_url: "https://expo.dev/blog/expo-app-folder-structure-best-practices"
+    platform: both
+    severity: warning
+    phase: codegen
+    check: null
+    message: "Divergenze grandi iOS/Android in file .ios.tsx/.android.tsx, non Platform.OS sparsi"
+    rule_version: "sdk-57"

@@ -1,0 +1,47 @@
+# Euristiche UX e psicologia — SEMPRE severity: warning (decisione D2):
+# non sono verita' binarie ma segnali ragionati.
+# Fonti: Laws of UX (Jon Yablonski), Nielsen Norman Group.
+
+rules:
+
+  - id: ux.fitts.icon-only-critical
+    source: "Legge di Fitts — Laws of UX"
+    source_url: "https://lawsofux.com/fittss-law/"
+    platform: both
+    severity: warning
+    check: icon_only_critical
+    message: "'{node}' e' l'azione primaria ma ha solo icona: icona + label riduce errori e tempo"
+    suggestion: "Aggiungi una label visibile (o estesa) all'azione primaria"
+    rule_version: "2026"
+
+  - id: ux.fitts.primary-low
+    source: "Legge di Fitts + thumb zone (NN/g)"
+    source_url: "https://www.nngroup.com/articles/mobile-navigation-patterns/"
+    platform: both
+    severity: warning
+    check: primary_position_low
+    message: "L'azione primaria '{node}' e' posizionata '{value}': la zona pollice e' in basso"
+    suggestion: "Posiziona l'azione primaria in basso (bottom-trailing / bottom)"
+    rule_version: "2026"
+
+  - id: ux.hick.too-many-choices
+    source: "Legge di Hick — Laws of UX"
+    source_url: "https://lawsofux.com/hicks-law/"
+    platform: both
+    severity: warning
+    check: too_many_choices
+    params: { max: 7 }
+    message: "'{node}' presenta {count} scelte equivalenti: oltre ~{max} il tempo di decisione esplode"
+    suggestion: "Raggruppa (chunking) o usa progressive disclosure"
+    rule_version: "2026"
+
+  - id: ux.jakob.standard-nav
+    source: "Legge di Jakob — Laws of UX"
+    source_url: "https://lawsofux.com/jakobs-law/"
+    platform: both
+    severity: warning
+    check: nav_pattern_present
+    scope: screen
+    message: "Navigazione non convenzionale: gli utenti si aspettano pattern che gia' conoscono"
+    suggestion: "Tab bar in basso, header in alto, back a sinistra: le convenzioni sono gratis"
+    rule_version: "2026"

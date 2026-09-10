@@ -1,0 +1,124 @@
+# Apple Human Interface Guidelines
+# Fonte: https://developer.apple.com/design/human-interface-guidelines
+# Verificato: settembre 2026 — iOS 26 ha introdotto Liquid Glass (WWDC 2025):
+# chrome di sistema (tab bar, toolbar) dinamico e content-aware, gerarchia
+# adattiva. I vincoli numerici base (44pt, safe area) sono invariati.
+
+rules:
+
+  - id: ios.liquid-glass.native-chrome
+    source: "Apple HIG — iOS 26 / Liquid Glass"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines"
+    platform: ios
+    severity: warning
+    phase: codegen
+    check: null
+    message: "Su iOS 26+ usa il chrome di sistema (Native Tabs, toolbar native): il materiale Liquid Glass e la gerarchia dinamica arrivano gratis; il chrome custom non li eredita"
+    suggestion: "Native Tabs API in Expo Router (regola expo.native-tabs)"
+    rule_version: "ios-26"
+
+  - id: ios.touch-target.min
+    source: "Apple HIG — Accessibility"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/accessibility"
+    platform: ios
+    severity: error
+    check: touch_target_min
+    params: { min: 44, unit: pt }
+    message: "'{node}' e' {actual}pt, sotto il minimo iOS di {min}pt"
+    suggestion: "Porta l'area touch ad almeno 44x44pt (padding o hitSlop nel codice)"
+    rule_version: "2026-06"
+
+  - id: ios.touch-target.absolute
+    source: "Apple HIG — Accessibility"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/accessibility"
+    platform: ios
+    severity: error
+    check: touch_target_min
+    params: { min: 28, unit: pt }
+    message: "'{node}' e' {actual}pt, sotto il minimo ASSOLUTO iOS di {min}pt"
+    suggestion: "Nessun controllo iOS puo' scendere sotto 28x28pt"
+    rule_version: "2026-06"
+
+  - id: ios.tab.max-items
+    source: "Apple HIG — Tab bars"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/tab-bars"
+    platform: ios
+    severity: error
+    check: max_items
+    params: { target: TabBar, max: 5 }
+    message: "La tab bar ha {count} tab, il massimo su iPhone e' {max}"
+    suggestion: "Sposta le destinazioni secondarie in una schermata 'Altro'"
+    rule_version: "2026-06"
+
+  - id: ios.tab.icon-label
+    source: "Apple HIG — Tab bars"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/tab-bars"
+    platform: both
+    severity: warning
+    check: tabs_complete
+    message: "La tab '{node}' manca di icona o label — servono entrambe"
+    suggestion: "Icona + testo: mai una sola delle due nelle tab"
+    rule_version: "2026-06"
+
+  - id: ios.one-primary-action
+    source: "Apple HIG — Layout and organization"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/layout-and-organization"
+    platform: both
+    severity: error
+    check: single_primary_action
+    scope: screen
+    message: "Trovate {count} azioni primarie ({value}) — una schermata ne ha UNA"
+    suggestion: "Decidi l'azione principale; le altre diventano secondarie"
+    rule_version: "2026-06"
+
+  - id: ios.a11y.label
+    source: "Apple HIG — Accessibility / VoiceOver"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/accessibility"
+    platform: both
+    severity: error
+    check: a11y_label_required
+    message: "'{node}' e' interattivo ma senza label accessibile (VoiceOver)"
+    suggestion: "Aggiungi a11y.label che descrive l'azione, non l'aspetto"
+    rule_version: "2026-06"
+
+  - id: ios.header.role
+    source: "Apple HIG — Accessibility"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/accessibility"
+    platform: both
+    severity: warning
+    check: role_expected
+    params: { type: AppHeader, role: header }
+    message: "'{node}' dovrebbe avere a11y.role '{expected}' per la navigazione assistita"
+    suggestion: "Imposta a11y.role: header sull'header della schermata"
+    rule_version: "2026-06"
+
+  - id: ios.min-text-size
+    source: "Apple HIG — Typography"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/typography"
+    platform: ios
+    severity: warning
+    check: text_min_size
+    params: { min: 11 }
+    message: "Il testo '{node}' (variante {value}) e' {actual}pt, sotto il minimo leggibile di {min}pt"
+    suggestion: "Usa una variante tipografica piu' grande o rivedi la gerarchia"
+    rule_version: "2026-06"
+
+  - id: ios.empty-state-action
+    source: "Apple HIG — Empty states"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/patterns"
+    platform: both
+    severity: warning
+    check: empty_state_action
+    message: "'{node}': {value} — mai lasciare schermate/liste vuote senza guida"
+    suggestion: "Aggiungi uno stato empty con messaggio + azione chiara"
+    rule_version: "2026-06"
+
+  - id: ios.destructive-confirm
+    source: "Apple HIG — Alerts / destructive actions"
+    source_url: "https://developer.apple.com/design/human-interface-guidelines/alerts"
+    platform: both
+    severity: warning
+    check: destructive_requires_confirm
+    message: "'{node}' e' distruttivo ma senza conferma esplicita"
+    suggestion: "Imposta props.confirm: true (action sheet di conferma)"
+    rule_version: "2026-06"

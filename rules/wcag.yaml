@@ -1,0 +1,92 @@
+# WCAG 2.2 — standard W3C vigente (anche base legale: European Accessibility Act,
+# in vigore dal 28 giugno 2025). WCAG 3.0 e' ancora Working Draft (marzo 2026),
+# nessuna legge lo referenzia: il riferimento resta WCAG 2.2 AA.
+# Fonte: https://www.w3.org/TR/WCAG22/
+
+rules:
+
+  - id: wcag.1.4.3.contrast-text
+    source: "WCAG 2.2 — SC 1.4.3 Contrast (Minimum), livello AA"
+    source_url: "https://www.w3.org/TR/WCAG22/#contrast-minimum"
+    platform: both
+    severity: error
+    check: contrast_min
+    params: { min: 4.5, target: text, large: false }
+    message: "'{node}' ha contrasto {actual}, richiesto almeno {min} (testo normale)"
+    suggestion: "Scurisci il testo o schiarisci lo sfondo; verifica con il contrasto WCAG"
+    rule_version: "2.2"
+
+  - id: wcag.1.4.3.contrast-large
+    source: "WCAG 2.2 — SC 1.4.3 Contrast (Minimum), livello AA"
+    source_url: "https://www.w3.org/TR/WCAG22/#contrast-minimum"
+    platform: both
+    severity: error
+    check: contrast_min
+    params: { min: 3.0, target: text, large: true }
+    message: "'{node}' ha contrasto {actual}, richiesto almeno {min} (testo grande)"
+    suggestion: "Il testo grande (title/heading) puo' scendere a 3:1, non oltre"
+    rule_version: "2.2"
+
+  - id: wcag.1.4.11.contrast-ui
+    source: "WCAG 2.2 — SC 1.4.11 Non-text Contrast, livello AA"
+    source_url: "https://www.w3.org/TR/WCAG22/#non-text-contrast"
+    platform: both
+    severity: warning
+    check: contrast_min
+    params: { min: 3.0, target: ui }
+    message: "Il componente '{node}' ha contrasto {actual} con lo sfondo, raccomandato {min}"
+    suggestion: "Bordi e superfici interattive devono distinguersi: almeno 3:1"
+    rule_version: "2.2"
+
+  - id: wcag.2.5.8.target-min
+    source: "WCAG 2.2 — SC 2.5.8 Target Size (Minimum), livello AA"
+    source_url: "https://www.w3.org/TR/WCAG22/#target-size-minimum"
+    platform: both
+    severity: error
+    check: touch_target_min
+    params: { min: 24, unit: px }
+    message: "'{node}' e' {actual}px, sotto il minimo legale WCAG di {min}px"
+    suggestion: "Almeno 24x24px (o 24px di distanza dai target adiacenti)"
+    rule_version: "2.2"
+
+  - id: wcag.2.5.5.target-enhanced
+    source: "WCAG 2.2 — SC 2.5.5 Target Size (Enhanced), livello AAA"
+    source_url: "https://www.w3.org/TR/WCAG22/#target-size-enhanced"
+    platform: both
+    severity: warning
+    check: touch_target_min
+    params: { min: 44, unit: px }
+    message: "'{node}' e' {actual}px: il livello enhanced WCAG raccomanda {min}px"
+    suggestion: "44x44px copre anche il requisito iOS: conviene sempre"
+    rule_version: "2.2"
+
+  - id: wcag.1.4.1.color-not-only
+    source: "WCAG 2.2 — SC 1.4.1 Use of Color, livello A"
+    source_url: "https://www.w3.org/TR/WCAG22/#use-of-color"
+    platform: both
+    severity: warning
+    check: color_only_meaning
+    message: "'{node}' usa il colore semantico {value} come unico segnale (es. importo positivo solo verde)"
+    suggestion: "Aggiungi un segnale non cromatico: icona, segno +/-, label"
+    rule_version: "2.2"
+
+  - id: wcag.4.1.2.name-role
+    source: "WCAG 2.2 — SC 4.1.2 Name, Role, Value, livello A"
+    source_url: "https://www.w3.org/TR/WCAG22/#name-role-value"
+    platform: both
+    severity: error
+    check: a11y_role_required
+    message: "'{node}' e' interattivo ma senza a11y.role (screen reader non puo' interpretarlo)"
+    suggestion: "Aggiungi a11y.role: button | link | header | …"
+    rule_version: "2.2"
+
+  - id: wcag.3.2.consistent-nav
+    source: "WCAG 2.2 — SC 3.2.3 Consistent Navigation, livello AA"
+    source_url: "https://www.w3.org/TR/WCAG22/#consistent-navigation"
+    platform: both
+    severity: warning
+    check: nav_pattern_present
+    scope: screen
+    message: "Nessun pattern di navigazione standard rilevato nella schermata"
+    suggestion: "Usa i componenti di sistema: TabBar / AppHeader / navigation nativa"
+    rule_version: "2.2"

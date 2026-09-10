@@ -1,0 +1,27 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# --- Ambienti virtuali ---
+.venv/
+venv/
+
+# --- Node / Expo (per il codice generato) ---
+node_modules/
+dist/
+.expo/
+*.log
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Editor ---
+.vscode/
+.idea/
+
+# --- DesignChecker ---
+.designchecker/cache/

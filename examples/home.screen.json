@@ -1,0 +1,97 @@
+{
+  "schema_version": "0.1.0",
+  "meta": {
+    "id": "home",
+    "name": "Home — SpeseCondivise (conforme)",
+    "route": "/",
+    "status": "draft",
+    "source": { "kind": "generated", "model": "kimi-k2" },
+    "updated_at": "2026-09-10T14:30:00Z"
+  },
+  "root": {
+    "id": "screen-home",
+    "type": "Screen",
+    "layout": {
+      "direction": "column",
+      "safe_area": true,
+      "sizing": { "w": "fill", "h": "fill" },
+      "padding": { "horizontal": "{spacing.4}" }
+    },
+    "style": { "background": "{color.surface}" },
+    "children": [
+      {
+        "id": "header",
+        "type": "AppHeader",
+        "props": { "title": "Ciao Sara", "subtitle": "Casa Rossi · 3 membri" },
+        "layout": { "sizing": { "w": "fill", "h": "hug" }, "padding": { "vertical": "{spacing.4}" } },
+        "style": { "color": "{color.text-primary}" },
+        "a11y": { "role": "header" }
+      },
+      {
+        "id": "balance-card",
+        "type": "Card",
+        "layout": { "direction": "column", "gap": "{spacing.2}", "padding": { "all": "{spacing.4}" }, "sizing": { "w": "fill", "h": "hug" } },
+        "style": { "background": "{color.surface-raised}", "radius": "{radius.lg}" },
+        "children": [
+          {
+            "id": "balance-label",
+            "type": "Text",
+            "props": { "content": "Il tuo saldo", "variant": "caption" },
+            "layout": { "sizing": { "w": "hug", "h": "hug" } },
+            "style": { "color": "{color.text-secondary}" }
+          },
+          {
+            "id": "balance-value",
+            "type": "Text",
+            "props": { "content": "+ 24,50 €", "variant": "title" },
+            "layout": { "sizing": { "w": "hug", "h": "hug" } },
+            "style": { "color": "{color.success}" },
+            "a11y": { "label": "Saldo positivo di 24 euro e 50" }
+          }
+        ]
+      },
+      {
+        "id": "recent-header",
+        "type": "Text",
+        "props": { "content": "Spese recenti", "variant": "heading" },
+        "layout": { "sizing": { "w": "hug", "h": "hug" }, "padding": { "top": "{spacing.6}", "bottom": "{spacing.2}" } },
+        "style": { "color": "{color.text-primary}" }
+      },
+      {
+        "id": "expense-list",
+        "type": "List",
+        "props": { "data_source": "expenses.recent", "row_component": "ExpenseRow", "key_extractor": "expense.id" },
+        "layout": { "sizing": { "w": "fill", "h": "fill" }, "gap": "{spacing.2}" },
+        "style": {},
+        "states": {
+          "loading": { "replace_with": "SkeletonList" },
+          "empty": { "replace_with": "EmptyState", "props": { "message": "Nessuna spesa ancora", "action": { "label": "Aggiungi la prima spesa", "action": "navigate:/add-expense" } } },
+          "error": { "replace_with": "ErrorState", "props": { "retry_action": { "label": "Riprova", "action": "reload:expenses.recent" } } }
+        }
+      },
+      {
+        "id": "add-expense-fab",
+        "type": "Fab",
+        "props": { "icon": "plus", "label": "Aggiungi spesa", "action": "navigate:/add-expense" },
+        "layout": { "position": "bottom-trailing", "offset": { "x": "{spacing.4}", "y": "{spacing.4}" } },
+        "style": { "background": "{color.brand.primary}", "foreground": "{color.brand.on-primary}" },
+        "a11y": { "role": "button", "label": "Aggiungi una nuova spesa" },
+        "semantics": { "primary_action": true }
+      },
+      {
+        "id": "main-tabs",
+        "type": "TabBar",
+        "props": {
+          "tabs": [
+            { "id": "home", "icon": "house", "label": "Home", "route": "/" },
+            { "id": "groups", "icon": "person-2", "label": "Gruppi", "route": "/groups" },
+            { "id": "profile", "icon": "person", "label": "Profilo", "route": "/profile" }
+          ]
+        },
+        "layout": { "position": "bottom" },
+        "style": {},
+        "semantics": { "navigation_role": "root_tabs" }
+      }
+    ]
+  }
+}
