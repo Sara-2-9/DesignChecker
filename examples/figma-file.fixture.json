@@ -1,0 +1,109 @@
+{
+  "name": "SpeseCondivise — bozze",
+  "document": {
+    "id": "0:0",
+    "type": "DOCUMENT",
+    "children": [
+      {
+        "id": "1:2",
+        "type": "CANVAS",
+        "name": "Screens",
+        "children": [
+          {
+            "id": "10:5",
+            "type": "FRAME",
+            "name": "Home",
+            "absoluteBoundingBox": { "x": 0, "y": 0, "width": 393, "height": 852 },
+            "layoutMode": "VERTICAL",
+            "itemSpacing": 4,
+            "paddingLeft": 16, "paddingRight": 16, "paddingTop": 16, "paddingBottom": 16,
+            "fills": [ { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 } } ],
+            "children": [
+              {
+                "id": "10:6",
+                "type": "FRAME",
+                "name": "Header",
+                "layoutMode": "VERTICAL",
+                "children": [
+                  {
+                    "id": "10:7",
+                    "type": "TEXT",
+                    "name": "Title",
+                    "characters": "Ciao Sara",
+                    "style": { "fontSize": 28 },
+                    "fills": [ { "type": "SOLID", "color": { "r": 0.1, "g": 0.1, "b": 0.1 } } ]
+                  }
+                ]
+              },
+              {
+                "id": "10:8",
+                "type": "TEXT",
+                "name": "Balance",
+                "characters": "24,50 €",
+                "style": { "fontSize": 16 },
+                "fills": [ { "type": "SOLID", "color": { "r": 0.56, "g": 0.75, "b": 0.62 } } ]
+              },
+              {
+                "id": "10:9",
+                "type": "INSTANCE",
+                "name": "Button / Primary",
+                "absoluteBoundingBox": { "x": 16, "y": 200, "width": 200, "height": 36 },
+                "children": [
+                  {
+                    "id": "10:10",
+                    "type": "TEXT",
+                    "name": "Label",
+                    "characters": "Modifica",
+                    "style": { "fontSize": 16 },
+                    "fills": [ { "type": "SOLID", "color": { "r": 1, "g": 1, "b": 1 } } ]
+                  }
+                ],
+                "interactions": [
+                  {
+                    "trigger": { "type": "ON_CLICK" },
+                    "actions": [ { "type": "NODE", "destinationId": "20:1" } ]
+                  }
+                ]
+              },
+              {
+                "id": "10:11",
+                "type": "INSTANCE",
+                "name": "fab",
+                "absoluteBoundingBox": { "x": 320, "y": 12, "width": 56, "height": 56 },
+                "fills": [ { "type": "SOLID", "color": { "r": 0.368, "g": 0.561, "b": 0.431 } } ],
+                "children": [],
+                "interactions": [
+                  {
+                    "trigger": { "type": "ON_CLICK" },
+                    "actions": [ { "type": "NODE", "destinationId": "20:1" } ]
+                  }
+                ]
+              },
+              {
+                "id": "10:12",
+                "type": "FRAME",
+                "name": "Tab Bar",
+                "layoutMode": "HORIZONTAL",
+                "children": [
+                  { "id": "10:13", "type": "INSTANCE", "name": "Tab/Home", "children": [ { "id": "10:20", "type": "TEXT", "name": "l", "characters": "Home", "style": { "fontSize": 12 }, "fills": [] } ] },
+                  { "id": "10:14", "type": "INSTANCE", "name": "Tab/Gruppi", "children": [ { "id": "10:21", "type": "TEXT", "name": "l", "characters": "Gruppi", "style": { "fontSize": 12 }, "fills": [] } ] },
+                  { "id": "10:15", "type": "INSTANCE", "name": "Tab/Stats", "children": [ { "id": "10:22", "type": "TEXT", "name": "l", "characters": "Stats", "style": { "fontSize": 12 }, "fills": [] } ] },
+                  { "id": "10:16", "type": "INSTANCE", "name": "Tab/Wallet", "children": [ { "id": "10:23", "type": "TEXT", "name": "l", "characters": "Wallet", "style": { "fontSize": 12 }, "fills": [] } ] },
+                  { "id": "10:17", "type": "INSTANCE", "name": "Tab/Amici", "children": [ { "id": "10:24", "type": "TEXT", "name": "l", "characters": "Amici", "style": { "fontSize": 12 }, "fills": [] } ] },
+                  { "id": "10:18", "type": "INSTANCE", "name": "Tab/Profilo", "children": [ { "id": "10:25", "type": "TEXT", "name": "l", "characters": "Profilo", "style": { "fontSize": 12 }, "fills": [] } ] }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "20:1",
+            "type": "FRAME",
+            "name": "Add Expense",
+            "absoluteBoundingBox": { "x": 500, "y": 0, "width": 393, "height": 852 },
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}

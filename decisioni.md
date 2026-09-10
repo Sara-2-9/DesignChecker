@@ -108,3 +108,24 @@ Ogni decisione ha: data, contesto, decisione, motivazione. Le decisioni si posso
 **Decisione:** `dc generate <screen.json> --out <dir>` genera un progetto Expo completo: `src/theme.ts` (dai token DTCG, alias risolti), route snelli in `src/app/`, schermate in `src/screens/<id>/`, componenti riusabili in `src/components/` (Button, EmptyState…), data layer mock isolato in `src/data/` (D14), Native Tabs compound API per il TabBar, varianti `.ios.tsx/.android.tsx` da `platform_variants`. Convenzioni verificate da test dedicati (10 test codegen).
 **Motivazione:** codice trasportabile in un'app esistente senza rifattorizzare; convenzioni ufficiali garantite dal generatore, non dalla disciplina.
 **Stato:** implementato e testato (30 test totali OK). Limiti noti: icone con mappatura SF/Material euristica; le route oltre la home vanno generate quando lo schema multi-schermata sarà collegato ad `app.design.json`.
+
+## D21 — Importer Figma: REST API in lettura, plugin come unica via di scrittura
+**Contesto:** l'utente deve poter collegare un file Figma e far leggere le schermate al programma.
+**Decisione:** lettura via REST API con Personal Access Token (scope `file_content:read`, scadenza max 90 giorni — il CLI avvisa alla scadenza). Scrittura SOLO via plugin DesignChecker, perché: la REST API non può modificare nodi; l'MCP server ufficiale è riservato a client approvati (VS Code, Cursor, Claude Code, Codex) e rifiuta custom OAuth app e PAT.
+**Motivazione:** unica architettura possibile per un tool custom nel 2026, verificata sulle fonti ufficiali.
+**Limiti gestiti:** rate limit severi su piano Starter (Tier 1 ~10 req/min; View/Collab ~20/mese) — caching del file tree, messaggi chiari su 429.
+
+## D22 — Correzione a D4: sync token via plugin, non via Variables REST API
+**Contesto:** D4 assumeva il sync dei token via Figma Variables REST API.
+**Decisione:** gli endpoint Variables REST sono gated al piano Enterprise. Il sync token DTCG ↔ Figma Variables avviene tramite il plugin (Plugin API: variabili locali senza vincoli di piano).
+**Motivazione:** non legare DesignChecker a un piano Enterprise.
+
+## D23 — Importer codice da terminale: parsing AST via helper Node
+**Contesto:** l'utente deve poter puntare una schermata di un'app esistente da terminale (`dc import code <path.tsx>`).
+**Decisione:** un piccolo helper Node (TypeScript compiler API / Babel) trasforma il `.tsx` in screen JSON; il CLI Python lo orchestra. Node è già prerequisito (Expo). È l'importer con la massima fedeltà semantica (componenti e navigazione reali); la geometria arriva solo se dichiarata negli stili.
+**Motivazione:** per il redesign dell'app esistente, il codice è la fonte di verità.
+
+## D24 — Tre importer, un'unica interfaccia
+**Contesto:** Figma, codice, screenshot: tre sorgenti con fedeltà diverse.
+**Decisione:** tutti producono screen JSON con `meta.source` e `meta.confidence` per nodo, e tutti sfociano nello stesso audit del validatore. Comandi: `dc link figma <url>`, `dc screens`, `dc import figma <frame>`, `dc import code <path>`, `dc import shot <png>` (quest'ultimo con provider vision, v0.3). Mappatura frame→catalogo in cascata: istanze nominate → convenzione naming → euristica LLM.
+**Motivazione:** Figma dà geometria perfetta, codice dà semantica perfetta, screenshot copre il resto.

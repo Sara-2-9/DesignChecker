@@ -1,0 +1,176 @@
+{
+  "schema_version": "0.1.0",
+  "meta": {
+    "id": "home",
+    "name": "Home (import Figma)",
+    "route": "/home",
+    "status": "draft",
+    "source": {
+      "kind": "figma",
+      "confidence": 1.0
+    }
+  },
+  "root": {
+    "id": "home",
+    "type": "Screen",
+    "props": {},
+    "layout": {
+      "direction": "column",
+      "gap": "{spacing.1}",
+      "padding": {
+        "horizontal": "{spacing.4}",
+        "vertical": "{spacing.4}"
+      },
+      "safe_area": true,
+      "sizing": {
+        "w": "fill",
+        "h": "fill"
+      }
+    },
+    "style": {
+      "background": "{color.surface-raised}"
+    },
+    "meta": {
+      "source": "figma",
+      "confidence": 1.0,
+      "figma_name": "Home",
+      "figma_type": "FRAME"
+    },
+    "children": [
+      {
+        "id": "header",
+        "type": "AppHeader",
+        "props": {},
+        "layout": {
+          "direction": "column"
+        },
+        "style": {},
+        "meta": {
+          "source": "figma",
+          "confidence": 0.9,
+          "figma_name": "Header",
+          "figma_type": "FRAME"
+        }
+      },
+      {
+        "id": "balance",
+        "type": "Text",
+        "props": {
+          "content": "24,50 €",
+          "variant": "body"
+        },
+        "layout": {
+          "sizing": {
+            "w": "hug",
+            "h": "hug"
+          }
+        },
+        "style": {
+          "color": "#8FBF9E"
+        },
+        "meta": {
+          "source": "figma",
+          "confidence": 1.0
+        }
+      },
+      {
+        "id": "button-primary",
+        "type": "Button",
+        "props": {
+          "min_height": 36,
+          "label": "Modifica",
+          "action": "navigate:/add-expense"
+        },
+        "layout": {},
+        "style": {},
+        "meta": {
+          "source": "figma",
+          "confidence": 0.85,
+          "figma_name": "Button / Primary",
+          "figma_type": "INSTANCE"
+        },
+        "a11y": {
+          "role": "button",
+          "label": "Modifica"
+        }
+      },
+      {
+        "id": "fab",
+        "type": "Fab",
+        "props": {
+          "min_height": 56,
+          "action": "navigate:/add-expense"
+        },
+        "layout": {},
+        "style": {},
+        "meta": {
+          "source": "figma",
+          "confidence": 0.9,
+          "figma_name": "fab",
+          "figma_type": "INSTANCE"
+        },
+        "a11y": {
+          "role": "button",
+          "label": "fab"
+        }
+      },
+      {
+        "id": "tab-bar",
+        "type": "TabBar",
+        "props": {
+          "tabs": [
+            {
+              "id": "home",
+              "icon": "home",
+              "label": "Home",
+              "route": "/home"
+            },
+            {
+              "id": "gruppi",
+              "icon": "gruppi",
+              "label": "Gruppi",
+              "route": "/gruppi"
+            },
+            {
+              "id": "stats",
+              "icon": "stats",
+              "label": "Stats",
+              "route": "/stats"
+            },
+            {
+              "id": "wallet",
+              "icon": "wallet",
+              "label": "Wallet",
+              "route": "/wallet"
+            },
+            {
+              "id": "amici",
+              "icon": "amici",
+              "label": "Amici",
+              "route": "/amici"
+            },
+            {
+              "id": "profilo",
+              "icon": "profilo",
+              "label": "Profilo",
+              "route": "/profilo"
+            }
+          ]
+        },
+        "layout": {
+          "direction": "row"
+        },
+        "style": {},
+        "meta": {
+          "source": "figma",
+          "confidence": 0.9,
+          "figma_name": "Tab Bar",
+          "figma_type": "FRAME"
+        },
+        "semantics": {
+          "navigation_role": "root_tabs"
+        }
+      }
+    ]
+  }
+}

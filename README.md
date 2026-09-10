@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP + v0.2 funzionanti.** Validatore CLI (48 regole: 36 di validazione + 12 di codegen, baseline **Expo SDK 57**, verificato settembre 2026) + **codegen verso progetto Expo reale**. 30 test OK. Decisioni D1–D20.
+🟢 **MVP + v0.2 + importer Figma funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen verso progetto Expo reale + **import da file Figma collegato con audit immediato**. 40 test OK. Decisioni D1–D24.
 
 ### Uso (dalla radice del progetto)
 
@@ -42,6 +42,12 @@ python3 -m designchecker rules                                        # elenco r
 # Codegen: dallo screen JSON a un'app Expo vera
 python3 -m designchecker generate examples/home.screen.json --out examples/generated-app
 cd examples/generated-app && npm install && npx expo install --fix && npx expo start
+
+# Import da Figma: collega il file, elenca le schermate, importa + audit
+python3 -m designchecker link figma https://www.figma.com/design/<key>/il-tuo-file
+python3 -m designchecker screens
+python3 -m designchecker import figma "Home"
+# (test offline senza token: --fixture examples/figma-file.fixture.json)
 ```
 
 ⚠️ **Preview:** Expo Go SDK 56+ non è più sugli store — su iOS usa una dev build (`npx expo run:ios` con Xcode) o `eas go`; su Android Expo Go via CLI (decisione D19).

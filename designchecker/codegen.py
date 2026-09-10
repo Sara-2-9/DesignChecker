@@ -36,7 +36,8 @@ def camel(name: str) -> str:
 
 def kebab(name: str) -> str:
     s = re.sub(r"([a-z0-9])([A-Z])", r"\1-\2", name).replace("_", "-")
-    return s.lower()
+    s = re.sub(r"[^a-zA-Z0-9-]+", "-", s)   # spazi, slash ("Button / Primary")
+    return s.strip("-").lower()
 
 
 class Codegen:

@@ -1,27 +1,28 @@
 # 07 — Roadmap
 
-## MVP (solo terminale)
-- Rules engine con ~40 regole numeriche (touch target, contrasto, spacing, tipografia, safe area)
+## MVP (solo terminale) — ✅ FATTO
+- Rules engine con 48 regole (36 validate + 12 codegen), baseline SDK 57
 - Validatore CLI: prende uno screen JSON → sputa errori/warning con fonti
-- **Importer con audit** (decisione D5): screenshot (+codice) → JSON → report violazioni
-- Schema screen JSON definito (prerequisito: `docs/04`)
+- Schema screen JSON definito (`docs/04`)
 
-✅ *Copre già il bisogno immediato: capire cosa non va nelle schermate attuali.*
+## v0.2 — Codegen — ✅ FATTO
+- Component library React Native conforme per costruzione
+- `dc generate`: dallo screen JSON a progetto Expo completo (struttura SDK 57, Native Tabs, theme.ts dai token)
 
-## v0.2 — Doppio rendering
-- Component library React Native conforme per costruzione → rendering su Expo Go
-- Plugin Figma: renderizza il JSON come frame nativi, sincronizza token via Variables (DTCG)
-- Da qui: Figma e simulatore coordinati, stesso JSON
+## v0.3 — Importer + provider layer (IN CORSO — decisioni D21–D24)
+- **Importer Figma** ✅: `dc link figma <url>` + `dc screens` + `dc import figma <frame>` (REST API read-only, PAT) — testato offline su fixture
+- **Importer codice**: `dc import code <path.tsx>` (helper Node AST) — prossimo
+- **Importer screenshot**: `dc import shot <png>` (provider layer + modello vision)
+- Provider layer: rilevamento, menu due gruppi, routing per task, probe test
 
-## v0.3 — Editing bidirezionale + redesign assistito
-- Plugin Figma intercetta modifiche canvas → proposte → validazione real-time → annotation errori sul canvas
-- Interpretazione prompt → proposte di modifica (stesso percorso)
-- Generatore LLM: proposte di redesign dall'audit, proposte di prima schermata dal brief
-- Provider layer completo: rilevamento, menu due gruppi, routing per task, probe test
+## v0.4 — Plugin Figma + editing bidirezionale
+- Plugin: renderizza JSON → frame nativi (**unica via di scrittura** sul canvas, D21), sync token via Plugin API (D22), intercetta modifiche → proposte → validazione real-time → annotation errori
+- Interpretazione prompt → patch (stesso percorso)
+- Generatore LLM: proposte di redesign dall'audit, prima schermata dal brief
 
-## v0.4 — Chiusura del cerchio
+## v0.5 — Chiusura del cerchio
 - Export codice pulito nel repo dell'app esistente (sync, non solo copia)
-- Opzionale: Figma MCP per "code to canvas" (catturare l'app vera come layer Figma) — valutare costi piano
+- Valutare componenti Expo UI (stabili da SDK 56) per la component library
 
 ## Processo continuo
 - Aggiornamento regole a ogni WWDC / Google I/O / release W3C, con changelog versionato

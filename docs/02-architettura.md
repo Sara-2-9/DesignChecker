@@ -46,7 +46,7 @@
 | **Screen JSON + tokens.json** | Unica fonte di verità. Token in formato W3C DTCG 2025.10. Schema: `docs/04`. |
 | **Rules engine** | Regole ufficiali come dati YAML versionati. Dettagli: `docs/03`. |
 | **Validatore** | Controlla ogni versione dello screen JSON contro le regole. Output: lista di `error` (bloccanti) e `warning` (euristici), ognuno con fonte citata. |
-| **Importer** | Screenshot e/o codice `.tsx` → screen JSON (via modello vision) → audit delle violazioni. |
+| **Importer** | Tre sorgenti, un'unica interfaccia (D24): **Figma** (REST API read-only, D21), **codice** `.tsx` via helper Node AST (D23), **screenshot** via modello vision. Tutti producono screen JSON con `meta.source` + `meta.confidence` e sfociano nell'audit del validatore. |
 | **Generatore/interprete** | Usa l'LLM via provider layer per: proporre schermate dal brief, ridisegnare dall'audit, interpretare prompt utente ("primario verde salvia") in modifiche al JSON. **Compone solo con la component library**, non disegna libero. |
 
 ### PROVIDER LAYER
