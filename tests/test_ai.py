@@ -206,6 +206,35 @@ class TestProviders(unittest.TestCase):
         self.assertEqual(reply, "ok")
         self.assertTrue(seen["url"].endswith("/chat/completions"))
         self.assertEqual(seen["payload"]["model"], "qwen3:8b")
+        self.assertEqual(seen["payload"]["temperature"], 0.2)
+
+    def test_chat_senza_temperature_quando_none(self):
+        """Kimi Code rifiuta temperature esplicita: non deve essere nel payload."""
+        seen = {}
+        def fake_http(url, payload=None, headers=None, timeout=1.5):
+            seen["payload"] = payload
+            return {"choices": [{"message": {"content": "ok"}}]}
+        p = next(p for p in ai.PROVIDERS if p.pid == "kimicode")
+        self.assertIsNone(p.temperature)
+        ai.chat(p, "kimi-for-coding", [{"role": "user", "content": "ciao"}],
+                {"ai": {"keys": {"kimicode": "k"}}}, http_json=fake_http)
+        self.assertNotIn("temperature", seen["payload"])
+
+    def test_fetch_models_fallback(self):
+        def fail(url, payload=None, headers=None, timeout=1.5):
+            raise ConnectionError(url)
+        p = next(p for p in ai.PROVIDERS if p.pid == "kimicode")
+        models = ai.fetch_models(p, {"ai": {"keys": {"kimicode": "k"}}},
+                                 http_json=fail)
+        self.assertIn("kimi-for-coding", models)
+
+    def test_fetch_models_live(self):
+        def fake_http(url, payload=None, headers=None, timeout=1.5):
+            return {"data": [{"id": "k3"}, {"id": "kimi-for-coding"}]}
+        p = next(p for p in ai.PROVIDERS if p.pid == "kimicode")
+        models = ai.fetch_models(p, {"ai": {"keys": {"kimicode": "k"}}},
+                                 http_json=fake_http)
+        self.assertEqual(models, ["k3", "kimi-for-coding"])
 
     def test_chat_anthropic(self):
         seen = {}

@@ -473,7 +473,8 @@ def _resolve_provider(config: dict, task: str = "patch_fix"):
         return None, None
     p = _ai.Provider(tmpl.pid, tmpl.label, tmpl.group, tmpl.style,
                      ai_cfg.get("base_url") or tmpl.base_url, tmpl.env_key,
-                     list(tmpl.models), True, "", tmpl.alt_env)
+                     list(tmpl.models), True, "", tmpl.alt_env,
+                     temperature=tmpl.temperature)
     if not model:
         detected = {d.pid: d for d in _ai.detect_providers(config)}
         if detected.get(pid) and detected[pid].models:
@@ -545,21 +546,25 @@ def _ai_command(args) -> None:
                 sys.exit(2)
             p.base_url = base_url
             config.setdefault("ai", {})["base_url"] = base_url
-            model = input("Nome modello (es. mia-org/mio-modello): ").strip()
-        else:
-            model = _ai.pick_model(p)
-            if len(p.models) > 1 or not model:
-                alt = input(f"Modello [{model or 'da specificare'}]: ").strip()
-                if alt:
-                    model = alt
         if mode == "key":
             key = getpass.getpass(f"API key per {p.label} (nascosta, salvata "
                                   "in ~/.designchecker/config.json): ").strip()
             if not key:
                 print("Nessuna chiave inserita.", file=sys.stderr)
                 sys.exit(2)
+            # la chiave si salva SUBITO: un probe fallito non la perde
             config.setdefault("ai", {}).setdefault("keys", {})[p.pid] = key
+            _save_config(config)
             p.detected = True
+            # modelli live dall'endpoint; fallback ai default noti
+            p.models = _ai.fetch_models(p, config)
+        model = _ai.pick_model(p)
+        if len(p.models) > 1 or not model:
+            if len(p.models) > 1:
+                print("  Modelli disponibili: " + ", ".join(p.models[:8]))
+            alt = input(f"Modello [{model or 'da specificare'}]: ").strip()
+            if alt:
+                model = alt
 
     print(f"\nProbe: {p.label} · {model}…")
     ok, detail = _ai.probe(p, model, config)

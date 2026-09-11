@@ -62,7 +62,8 @@ class Bridge:
             return None, None, config
         p = _ai.Provider(tmpl.pid, tmpl.label, tmpl.group, tmpl.style,
                          ai_cfg.get("base_url") or tmpl.base_url, tmpl.env_key,
-                         [model], True, "", tmpl.alt_env)
+                         [model], True, "", tmpl.alt_env,
+                         temperature=tmpl.temperature)
         return p, model, config
 
     def health(self) -> dict:

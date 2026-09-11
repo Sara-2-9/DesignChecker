@@ -48,14 +48,17 @@ class Provider:
     detected: bool = False
     note: str = ""
     alt_env: str = ""     # seconda variabile d'ambiente accettata
+    temperature: float | None = 0.2  # None = non inviarla (es. Kimi Code: solo default)
 
 
 PROVIDERS = [
     Provider("ollama", "Ollama", "A", "openai", OLLAMA_URL + "/v1"),
     Provider("lmstudio", "LM Studio", "A", "openai", LMSTUDIO_URL + "/v1"),
+    # Kimi Code (abbonamento): rifiuta temperature != default (HTTP 400).
+    # Host internazionale alternativo: https://api.kimi.ai/coding/v1
     Provider("kimicode", "Kimi Code (abbonamento)", "B", "openai",
              "https://api.kimi.com/coding/v1", "KIMI_API_KEY",
-             alt_env="KIMI_CODE_API_KEY"),
+             alt_env="KIMI_CODE_API_KEY", temperature=None),
     Provider("kimi", "Kimi API (pay-as-you-go)", "B", "openai",
              "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
     Provider("anthropic", "Claude (Anthropic)", "B", "anthropic",
@@ -68,8 +71,9 @@ PROVIDERS = [
 ]
 
 DEFAULT_MODELS = {
-    "kimicode": ["kimi-k2.7-code", "kimi-k3"],
-    "kimi": ["kimi-k2.6", "kimi-k2.7-code"],
+    # Kimi Code: model ID ufficiali dell'endpoint abbonamento (docs kimi.com/code)
+    "kimicode": ["kimi-for-coding", "k3-256k"],
+    "kimi": ["kimi-k3", "kimi-k2.6"],
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
     "openai": ["gpt-4o", "gpt-4o-mini"],
     "huggingface": ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-R1:fastest",
@@ -172,6 +176,27 @@ def pick_model(p: Provider, task: str = "patch_fix") -> str:
     return p.models[0]
 
 
+def fetch_models(p: Provider, config: dict | None = None,
+                 http_json=_http_json) -> list[str]:
+    """Recupera i modelli live da GET {base_url}/models (OpenAI-compatible).
+    Fallback: i default noti. Mai eccezioni."""
+    config = config or {}
+    if p.style == "openai" and p.base_url:
+        try:
+            headers = {}
+            key = api_key_for(p, config)
+            if key:
+                headers["Authorization"] = f"Bearer {key}"
+            data = http_json(p.base_url.rstrip("/") + "/models", None,
+                             headers, 5)
+            models = [m.get("id") for m in data.get("data", []) if m.get("id")]
+            if models:
+                return models
+        except Exception:
+            pass
+    return list(DEFAULT_MODELS.get(p.pid, []))
+
+
 def chat(p: Provider, model: str, messages: list, config: dict | None = None,
          timeout: int = CHAT_TIMEOUT, http_json=_http_json) -> str:
     """Chiamata chat completion. Ritorna il testo della risposta."""
@@ -191,8 +216,10 @@ def chat(p: Provider, model: str, messages: list, config: dict | None = None,
             "anthropic-version": "2023-06-01",
         }, timeout)
         return "".join(b.get("text", "") for b in data.get("content", []))
-    # OpenAI-compatible: Ollama /v1, LM Studio, OpenAI, Kimi
-    payload = {"model": model, "messages": messages, "temperature": 0.2}
+    # OpenAI-compatible: Ollama /v1, LM Studio, OpenAI, Kimi, HuggingFace
+    payload = {"model": model, "messages": messages}
+    if p.temperature is not None:
+        payload["temperature"] = p.temperature
     headers = {}
     key = api_key_for(p, config)
     if key:
