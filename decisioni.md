@@ -114,6 +114,12 @@ Ogni decisione ha: data, contesto, decisione, motivazione. Le decisioni si posso
 **Decisione:** lettura via REST API con Personal Access Token (scope `file_content:read`, scadenza max 90 giorni — il CLI avvisa alla scadenza). Scrittura SOLO via plugin DesignChecker, perché: la REST API non può modificare nodi; l'MCP server ufficiale è riservato a client approvati (VS Code, Cursor, Claude Code, Codex) e rifiuta custom OAuth app e PAT.
 **Motivazione:** unica architettura possibile per un tool custom nel 2026, verificata sulle fonti ufficiali.
 **Limiti gestiti:** rate limit severi su piano Starter (Tier 1 ~10 req/min; View/Collab ~20/mese) — caching del file tree, messaggi chiari su 429.
+**Scope del PAT (minimo privilegio):** solo `users:read` (verifica token in `dc link`) e `file_content:read` (lettura frame). Nient'altro: i permessi di scrittura REST non esistono per il canvas, quindi nessuno scope di scrittura serve.
+
+## D27 — Real-time e scrittura Figma: solo plugin, mai REST/webhook
+**Contesto:** il sistema deve avvisare in tempo reale durante l'editing in Figma e applicare sul canvas le modifiche confermate da prompt.
+**Decisione:** entrambe le capacità sono del plugin (v0.4): la Plugin API osserva le modifiche del documento in locale (→ proposte → validatore → annotation immediate) e riscrive il canvas dopo l'applicazione delle patch. REST API esclusa (solo snapshot, read-only, rate limit); webhook Figma valutati e scartati (eventi grossolani tipo "file salvato", non editing live).
+**Motivazione:** il tempo reale richiede di stare *dentro* Figma; il plugin è l'unico componente che ci sta.
 
 ## D22 — Correzione a D4: sync token via plugin, non via Variables REST API
 **Contesto:** D4 assumeva il sync dei token via Figma Variables REST API.
@@ -122,7 +128,7 @@ Ogni decisione ha: data, contesto, decisione, motivazione. Le decisioni si posso
 
 ## D23 — Importer codice da terminale: parsing AST via helper Node
 **Contesto:** l'utente deve poter puntare una schermata di un'app esistente da terminale (`dc import code <path.tsx>`).
-**Decisione:** un piccolo helper Node (TypeScript compiler API / Babel) trasforma il `.tsx` in screen JSON; il CLI Python lo orchestra. Node è già prerequisito (Expo). È l'importer con la massima fedeltà semantica (componenti e navigazione reali); la geometria arriva solo se dichiarata negli stili.
+**Decisione:** un piccolo helper Node (`tools/tsx2json.cjs`, @babel/parser) estrae albero JSX + `StyleSheet.create` + import relativi in JSON; `designchecker/importer_code.py` lo converte in screen JSON. Il codice non viene MAI eseguito (parsing statico). Implementato con: riconoscimento elementi RN nativi (Pressable→Button, FlatList→List…), match componenti custom al catalogo per nome (con suffissi: "ExpenseRow"→ListRow), **inseguimento degli import relativi** (legge il file del componente custom per touch size/a11y/azioni reali, con cache e guardia anti-cicli), merge delle props del sito d'uso (`<EmptyState message=… onAction=… />`), riferimenti `theme.*`→token DTCG se il path esiste, hex→token inverso, azioni da `router.push/back`, euristiche (Pressable absolute ~56→Fab; View con nome "…card"→Card). Node è già prerequisito (Expo).
 **Motivazione:** per il redesign dell'app esistente, il codice è la fonte di verità.
 
 ## D24 — Tre importer, un'unica interfaccia

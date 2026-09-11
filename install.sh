@@ -26,7 +26,7 @@ EOF
 chmod +x "$HOME/.local/bin/designchecker"
 ln -sf "$HOME/.local/bin/designchecker" "$HOME/.local/bin/dc"
 
-echo "4/4  PATH…"
+echo "4/5  PATH…"
 case ":$PATH:" in
   *":$HOME/.local/bin:"*)
     echo "     ~/.local/bin gia' nel PATH ✓" ;;
@@ -35,6 +35,17 @@ case ":$PATH:" in
     echo "     Aggiunto ~/.local/bin al PATH in ~/.zshrc"
     echo "     → apri un NUOVO terminale (o esegui: source ~/.zshrc)" ;;
 esac
+
+echo "5/5  Parser TSX (per 'dc import code')…"
+if command -v node >/dev/null 2>&1; then
+  if [ ! -d "$DIR/tools/node_modules/@babel/parser" ]; then
+    (cd "$DIR/tools" && npm install --no-bin-links --silent)
+  fi
+  echo "     @babel/parser pronto ✓"
+else
+  echo "     Node.js non trovato: 'dc import code' lo richiede (lo stesso Node di Expo)."
+  echo "     Installa Node e poi esegui: cd $DIR/tools && npm install"
+fi
 
 echo ""
 echo "✓ Installazione completata. Prova: designchecker version"

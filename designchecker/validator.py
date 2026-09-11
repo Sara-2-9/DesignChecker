@@ -200,6 +200,12 @@ def check_empty_state_action(node, rule, ctx):
     states = node.get("states", {}) or {}
     empty = states.get("empty")
     if empty is None:
+        # l'empty state puo' anche essere un figlio EmptyState (import da codice)
+        for child in node.get("children", []) or []:
+            if child.get("type") == "EmptyState":
+                empty = child
+                break
+    if empty is None:
         if node.get("type") == "List":
             return [make_finding(rule, node.get("id", "?"), value="stato empty mancante")]
         return None

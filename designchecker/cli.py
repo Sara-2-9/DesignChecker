@@ -65,8 +65,10 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("screens", help="Elenca le schermate del file Figma collegato")
 
     p_import = sub.add_parser("import", help="Importa una schermata → screen JSON + audit")
-    p_import.add_argument("source", choices=["figma"], help="Sorgente (code/shot: v0.3+)")
-    p_import.add_argument("frame", help="Nome del frame/schermata da importare")
+    p_import.add_argument("source", choices=["figma", "code"],
+                          help="Sorgente: figma (file collegato) o code (file .tsx/.jsx)")
+    p_import.add_argument("frame",
+                          help="figma: nome del frame/schermata · code: percorso del file .tsx")
     p_import.add_argument("--tokens", type=Path, default=None)
     p_import.add_argument("--catalog", type=Path, default=None)
     p_import.add_argument("--platform", choices=["ios", "android", "both"], default="both")
@@ -160,9 +162,48 @@ def _save_config(config: dict) -> None:
     os.chmod(path, 0o600)  # il token non deve essere leggibile da altri
 
 
+def _code_import(args, root: Path) -> None:
+    """`dc import code <file.tsx>`: parsing statico + conversione + audit (D23/D24)."""
+    from .codegen import kebab
+    from .importer_code import CodeImporter, CodeImportError, parse_tsx
+    import json as _json
+
+    source_path = Path(args.frame).expanduser()
+    if not source_path.is_file():
+        print(f"File non trovato: {source_path}", file=sys.stderr)
+        sys.exit(2)
+    try:
+        parsed = parse_tsx(source_path, root / "tools")
+    except CodeImportError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)
+
+    tokens = TokenStore(load_tokens(args.tokens or (root / "examples" / "tokens.json")))
+    catalog = load_catalog(args.catalog or (root / "components.catalog.yaml"))
+    importer = CodeImporter(tokens, catalog, tools_dir=root / "tools")
+    screen = importer.convert_screen(parsed, str(source_path))
+
+    out_dir = root / "imports"
+    out_dir.mkdir(exist_ok=True)
+    out_path = out_dir / f"{screen['meta']['id']}.screen.json"
+    out_path.write_text(_json.dumps(screen, indent=2, ensure_ascii=False),
+                        encoding="utf-8")
+    print(f"✓ Importata dal codice: {out_path}")
+
+    rules = load_rules(root / "rules")
+    findings = validate(screen, rules, tokens, catalog, platform=args.platform)
+    print_report(findings, screen["meta"]["name"],
+                 len([r for r in rules if r.get("phase", "validate") == "validate"]))
+    sys.exit(1 if any(f.severity == "error" for f in findings) else 0)
+
+
 def _figma_commands(args, root: Path) -> None:
     from .figma_api import FigmaClient, FigmaAPIError, parse_file_key
     from .importer_figma import FigmaImporter, list_frames
+
+    if args.command == "import" and args.source == "code":
+        _code_import(args, root)
+        return
 
     if args.command == "link":
         file_key = parse_file_key(args.url)

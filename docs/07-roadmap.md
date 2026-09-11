@@ -10,8 +10,8 @@
 - `dc generate`: dallo screen JSON a progetto Expo completo (struttura SDK 57, Native Tabs, theme.ts dai token)
 
 ## v0.3 — Importer + provider layer (IN CORSO — decisioni D21–D24)
-- **Importer Figma** ✅: `dc link figma <url>` + `dc screens` + `dc import figma <frame>` (REST API read-only, PAT) — testato offline su fixture
-- **Importer codice**: `dc import code <path.tsx>` (helper Node AST) — prossimo
+- **Importer Figma** ✅: `dc link figma <url>` + `dc screens` + `dc import figma <frame>` (REST API read-only, PAT) — testato su file Figma reale
+- **Importer codice** ✅: `dc import code <path.tsx>` (helper Node AST, parsing statico; segue gli import dei componenti custom; roundtrip su generated-app: 0 errori) — 11 test
 - **Importer screenshot**: `dc import shot <png>` (provider layer + modello vision)
 - Provider layer: rilevamento, menu due gruppi, routing per task, probe test
 

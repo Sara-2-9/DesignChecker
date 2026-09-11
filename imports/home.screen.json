@@ -2,24 +2,22 @@
   "schema_version": "0.1.0",
   "meta": {
     "id": "home",
-    "name": "Home (import Figma)",
+    "name": "home (import codice)",
     "route": "/home",
     "status": "draft",
     "source": {
-      "kind": "figma",
+      "kind": "code",
+      "path": "examples/generated-app/src/screens/home/index.tsx",
       "confidence": 1.0
     }
   },
   "root": {
-    "id": "home",
+    "id": "screen-home",
     "type": "Screen",
     "props": {},
     "layout": {
-      "direction": "column",
-      "gap": "{spacing.1}",
       "padding": {
-        "horizontal": "{spacing.4}",
-        "vertical": "{spacing.4}"
+        "horizontal": "{spacing.4}"
       },
       "safe_area": true,
       "sizing": {
@@ -28,13 +26,12 @@
       }
     },
     "style": {
-      "background": "{color.surface-raised}"
+      "background": "{color.surface}"
     },
     "meta": {
-      "source": "figma",
+      "source": "code",
       "confidence": 1.0,
-      "figma_name": "Home",
-      "figma_type": "FRAME"
+      "rn_tag": "SafeAreaView"
     },
     "children": [
       {
@@ -42,133 +39,234 @@
         "type": "AppHeader",
         "props": {},
         "layout": {
-          "direction": "column"
-        },
-        "style": {},
-        "meta": {
-          "source": "figma",
-          "confidence": 0.9,
-          "figma_name": "Header",
-          "figma_type": "FRAME"
-        }
-      },
-      {
-        "id": "balance",
-        "type": "Text",
-        "props": {
-          "content": "24,50 €",
-          "variant": "body"
-        },
-        "layout": {
-          "sizing": {
-            "w": "hug",
-            "h": "hug"
+          "padding": {
+            "vertical": "{spacing.4}"
           }
         },
         "style": {
-          "color": "#8FBF9E"
+          "color": "{color.text-primary}"
         },
         "meta": {
-          "source": "figma",
-          "confidence": 1.0
+          "source": "code",
+          "confidence": 0.75,
+          "rn_tag": "View"
+        },
+        "a11y": {
+          "role": "header"
+        },
+        "children": [
+          {
+            "id": "header-title",
+            "type": "Text",
+            "props": {
+              "content": "Ciao Sara",
+              "variant": "title"
+            },
+            "layout": {},
+            "style": {
+              "color": "{color.text-primary}"
+            },
+            "meta": {
+              "source": "code",
+              "confidence": 1.0,
+              "rn_tag": "Text"
+            }
+          },
+          {
+            "id": "header-subtitle",
+            "type": "Text",
+            "props": {
+              "content": "Casa Rossi · 3 membri",
+              "variant": "body"
+            },
+            "layout": {},
+            "style": {
+              "color": "{color.text-secondary}"
+            },
+            "meta": {
+              "source": "code",
+              "confidence": 1.0,
+              "rn_tag": "Text"
+            }
+          }
+        ]
+      },
+      {
+        "id": "balance-card",
+        "type": "Card",
+        "props": {},
+        "layout": {
+          "padding": {
+            "all": "{spacing.4}"
+          },
+          "gap": "{spacing.2}"
+        },
+        "style": {
+          "background": "{color.surface-raised}",
+          "radius": "{radius.lg}"
+        },
+        "meta": {
+          "source": "code",
+          "confidence": 0.7,
+          "rn_tag": "View"
+        },
+        "children": [
+          {
+            "id": "balance-label",
+            "type": "Text",
+            "props": {
+              "content": "Il tuo saldo",
+              "variant": "caption"
+            },
+            "layout": {},
+            "style": {
+              "color": "{color.text-secondary}"
+            },
+            "meta": {
+              "source": "code",
+              "confidence": 1.0,
+              "rn_tag": "Text"
+            }
+          },
+          {
+            "id": "balance-value",
+            "type": "Text",
+            "props": {
+              "content": "+ 24,50 €",
+              "variant": "title"
+            },
+            "layout": {},
+            "style": {
+              "color": "{color.success}"
+            },
+            "meta": {
+              "source": "code",
+              "confidence": 1.0,
+              "rn_tag": "Text"
+            },
+            "a11y": {
+              "label": "Saldo positivo di 24 euro e 50"
+            }
+          }
+        ]
+      },
+      {
+        "id": "recent-header",
+        "type": "Text",
+        "props": {
+          "content": "Spese recenti",
+          "variant": "heading"
+        },
+        "layout": {},
+        "style": {
+          "color": "{color.text-primary}"
+        },
+        "meta": {
+          "source": "code",
+          "confidence": 1.0,
+          "rn_tag": "Text"
         }
       },
       {
-        "id": "button-primary",
-        "type": "Button",
-        "props": {
-          "min_height": 36,
-          "label": "Modifica",
-          "action": "navigate:/add-expense"
-        },
+        "id": "flat-list-8",
+        "type": "List",
+        "props": {},
         "layout": {},
         "style": {},
         "meta": {
-          "source": "figma",
-          "confidence": 0.85,
-          "figma_name": "Button / Primary",
-          "figma_type": "INSTANCE"
+          "source": "code",
+          "confidence": 1.0,
+          "rn_tag": "FlatList"
         },
-        "a11y": {
-          "role": "button",
-          "label": "Modifica"
-        }
+        "children": [
+          {
+            "id": "expense-row",
+            "type": "ListRow",
+            "props": {
+              "min_height": 48
+            },
+            "layout": {
+              "padding": {
+                "horizontal": "{spacing.4}",
+                "vertical": "{spacing.2}"
+              }
+            },
+            "style": {
+              "radius": "{radius.sm}"
+            },
+            "meta": {
+              "source": "code",
+              "confidence": 0.9,
+              "rn_tag": "Pressable",
+              "a11y_dynamic": true,
+              "via_import": "ExpenseRow"
+            },
+            "a11y": {
+              "role": "button",
+              "label": "(dinamica: dai dati della riga)"
+            }
+          },
+          {
+            "id": "empty-state",
+            "type": "EmptyState",
+            "props": {
+              "message": "Nessuna spesa ancora",
+              "action_label": "Aggiungi la prima spesa",
+              "action": "navigate:/add-expense"
+            },
+            "layout": {
+              "padding": {
+                "all": "{spacing.6}"
+              },
+              "gap": "{spacing.4}"
+            },
+            "style": {},
+            "meta": {
+              "source": "code",
+              "confidence": 0.9,
+              "rn_tag": "View",
+              "via_import": "EmptyState"
+            },
+            "children": [
+              {
+                "id": "message",
+                "type": "Text",
+                "props": {
+                  "content": "{…}",
+                  "variant": "body"
+                },
+                "layout": {},
+                "style": {
+                  "color": "{color.text-secondary}"
+                },
+                "meta": {
+                  "source": "code",
+                  "confidence": 1.0,
+                  "rn_tag": "Text"
+                }
+              }
+            ]
+          }
+        ]
       },
       {
-        "id": "fab",
+        "id": "add-expense-fab",
         "type": "Fab",
         "props": {
           "min_height": 56,
+          "label": "Aggiungi spesa",
           "action": "navigate:/add-expense"
         },
         "layout": {},
         "style": {},
         "meta": {
-          "source": "figma",
-          "confidence": 0.9,
-          "figma_name": "fab",
-          "figma_type": "INSTANCE"
+          "source": "code",
+          "confidence": 0.85,
+          "rn_tag": "Pressable"
         },
         "a11y": {
           "role": "button",
-          "label": "fab"
-        }
-      },
-      {
-        "id": "tab-bar",
-        "type": "TabBar",
-        "props": {
-          "tabs": [
-            {
-              "id": "home",
-              "icon": "home",
-              "label": "Home",
-              "route": "/home"
-            },
-            {
-              "id": "gruppi",
-              "icon": "gruppi",
-              "label": "Gruppi",
-              "route": "/gruppi"
-            },
-            {
-              "id": "stats",
-              "icon": "stats",
-              "label": "Stats",
-              "route": "/stats"
-            },
-            {
-              "id": "wallet",
-              "icon": "wallet",
-              "label": "Wallet",
-              "route": "/wallet"
-            },
-            {
-              "id": "amici",
-              "icon": "amici",
-              "label": "Amici",
-              "route": "/amici"
-            },
-            {
-              "id": "profilo",
-              "icon": "profilo",
-              "label": "Profilo",
-              "route": "/profilo"
-            }
-          ]
-        },
-        "layout": {
-          "direction": "row"
-        },
-        "style": {},
-        "meta": {
-          "source": "figma",
-          "confidence": 0.9,
-          "figma_name": "Tab Bar",
-          "figma_type": "FRAME"
-        },
-        "semantics": {
-          "navigation_role": "root_tabs"
+          "label": "Aggiungi una nuova spesa"
         }
       }
     ]

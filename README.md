@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP + v0.2 + importer Figma funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen verso progetto Expo reale + **import da file Figma collegato con audit immediato**. 40 test OK. Decisioni D1–D24.
+🟢 **MVP + v0.2 + importer Figma e codice funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen verso progetto Expo reale + **import da file Figma collegato** e **da codice .tsx esistente**, con audit immediato. 51 test OK. Decisioni D1–D27.
 
 ### Installazione (una volta sola)
 
@@ -57,6 +57,10 @@ python3 -m designchecker link figma https://www.figma.com/design/<key>/il-tuo-fi
 python3 -m designchecker screens
 python3 -m designchecker import figma "Home"
 # (test offline senza token: --fixture examples/figma-file.fixture.json)
+
+# Import da codice: punta una schermata .tsx dell'app esistente → screen JSON + audit
+python3 -m designchecker import code percorso/alla/tua/screens/home/index.tsx
+# (parsing statico AST via Node; segue anche i componenti custom importati)
 ```
 
 ⚠️ **Preview:** Expo Go SDK 56+ non è più sugli store — su iOS usa una dev build (`npx expo run:ios` con Xcode) o `eas go`; su Android Expo Go via CLI (decisione D19).
@@ -64,11 +68,12 @@ python3 -m designchecker import figma "Home"
 ### Struttura
 
 ```
-├── designchecker/     ← tokens, validator, report, cli, loader, codegen
+├── designchecker/     ← tokens, validator, report, cli, loader, codegen, importer_figma, importer_code
+├── tools/             ← tsx2json.cjs: parser statico TSX (Node + @babel/parser) per dc import code
 ├── rules/             ← 6 file: ios-hig, material3, wcag, design-system, expo-rn, ux-heuristics
 ├── components.catalog.yaml
 ├── examples/          ← tokens.json, schermate di esempio, generated-app/ (progetto Expo)
-├── tests/             ← 30 test (validatore + codegen)
+├── tests/             ← 51 test (validatore + codegen + importer)
 └── docs/              ← la progettazione completa
 ```
 
