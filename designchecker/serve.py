@@ -146,11 +146,33 @@ def make_handler(bridge: Bridge):
 
 
 def serve(root: Path, port: int = DEFAULT_PORT) -> None:
+    import socket
+    import threading
+
     bridge = Bridge(root)
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(bridge))
-    print(f"DesignChecker bridge attivo su http://127.0.0.1:{port}")
+    handler = make_handler(bridge)
+
+    servers: list[ThreadingHTTPServer] = []
+
+    class V6Server(ThreadingHTTPServer):
+        address_family = socket.AF_INET6
+
+    # localhost puo' risolversi in 127.0.0.1 O ::1 (Chromium sceglie):
+    # ascoltiamo su entrambe le famiglie, ::1 best-effort (D29).
+    servers.append(ThreadingHTTPServer(("127.0.0.1", port), handler))
+    try:
+        servers.append(V6Server(("::1", port), handler))
+    except OSError:
+        pass  # IPv6 disabilitato su questa macchina: va bene lo stesso
+
+    for server in servers[1:]:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    print(f"DesignChecker bridge attivo su http://localhost:{port}")
     print("Il plugin Figma ora parla con questo processo. Ctrl+C per fermare.")
     try:
-        server.serve_forever()
+        servers[0].serve_forever()
     except KeyboardInterrupt:
         print("\nBridge fermato.")
+        for server in servers:
+            server.shutdown()

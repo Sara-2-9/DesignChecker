@@ -74,7 +74,7 @@ designchecker project --forget        # scollega
 
 ```bash
 # 1. In un terminale, dalla cartella del progetto:
-designchecker serve          # bridge locale su http://127.0.0.1:7357 (lasciarlo aperto)
+designchecker serve          # bridge locale su http://localhost:7357 (lasciarlo aperto)
 ```
 
 2. In Figma (desktop o browser): **Menu → Plugins → Development → Import plugin from manifest…** → seleziona `DesignChecker/plugin/manifest.json`

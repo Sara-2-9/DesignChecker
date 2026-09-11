@@ -7,7 +7,6 @@
   "editorType": ["figma"],
   "networkAccess": {
     "allowedDomains": [
-      "http://127.0.0.1:7357",
       "http://localhost:7357"
     ],
     "reasoning": "Bridge locale (dc serve): validazione regole UI/UX e scambio screen JSON, solo loopback."
