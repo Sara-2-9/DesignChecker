@@ -84,6 +84,9 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("rules", help="Elenca le regole caricate")
     sub.add_parser("version", help="Mostra la versione")
 
+    p_serve = sub.add_parser("serve", help="Bridge locale per il plugin Figma (D29)")
+    p_serve.add_argument("--port", type=int, default=7357)
+
     args = parser.parse_args(argv)
     root = _find_project_root()
 
@@ -145,6 +148,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "project":
         _project_command(args)
+        return
+
+    if args.command == "serve":
+        from .serve import serve
+        serve(root, port=args.port)
         return
 
     if args.command in ("link", "screens", "import"):

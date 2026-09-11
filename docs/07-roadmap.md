@@ -16,10 +16,13 @@
 - **Importer screenshot**: `dc import shot <png>` (provider layer + modello vision)
 - Provider layer: rilevamento, menu due gruppi, routing per task, probe test
 
-## v0.4 — Plugin Figma + editing bidirezionale
-- Plugin: renderizza JSON → frame nativi (**unica via di scrittura** sul canvas, D21), sync token via Plugin API (D22), intercetta modifiche → proposte → validazione real-time → annotation errori
-- Interpretazione prompt → patch (stesso percorso)
-- Generatore LLM: proposte di redesign dall'audit, prima schermata dal brief
+## v0.4 — Plugin Figma + editing bidirezionale (IN CORSO — D29)
+- ✅ Plugin: export frame → screen JSON via Plugin API (zero REST, zero rate limit), audit via bridge locale `dc serve`
+- ✅ Annotazioni real-time sul canvas (toggle, debounce 900ms): rettangoli rossi/arancio + regola violata
+- ✅ Scrittura su canvas: render screen JSON → frame nativi (auto-layout, token risolti, dc_id in pluginData)
+- ⏳ Interpretazione prompt → patch → render automatico (serve il provider layer)
+- ⏳ Sync token → Variables Figma (D22)
+- ⏳ Generatore LLM: proposte di redesign dall'audit, prima schermata dal brief
 
 ## v0.5 — Chiusura del cerchio
 - Export codice pulito nel repo dell'app esistente (sync, non solo copia)

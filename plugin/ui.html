@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font: 12px/1.5 -apple-system, 'SF Pro Text', Inter, sans-serif;
+    background: #1e1e1e; color: #e8e8e8; padding: 12px;
+  }
+  h1 { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  button {
+    background: #7c6cf0; color: #fff; border: 0; border-radius: 6px;
+    padding: 6px 10px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.secondary { background: #333; }
+  button:disabled { opacity: .4; cursor: default; }
+  input[type=text] {
+    background: #2c2c2c; border: 1px solid #444; border-radius: 6px;
+    color: #e8e8e8; padding: 5px 8px; font: inherit; flex: 1; min-width: 0;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.on { background: #30d158; } .dot.off { background: #ff453a; }
+  #status { color: #999; font-size: 11px; }
+  #findings { margin-top: 10px; overflow-y: auto; max-height: 300px; }
+  .finding {
+    border-left: 3px solid #666; padding: 6px 8px; margin-bottom: 6px;
+    background: #262626; border-radius: 0 6px 6px 0;
+  }
+  .finding.error { border-color: #ff453a; }
+  .finding.warning { border-color: #ff9f0a; }
+  .finding .rule { font-weight: 700; font-size: 11px; }
+  .finding.error .rule { color: #ff6961; }
+  .finding.warning .rule { color: #ffb340; }
+  .finding .node { color: #8ab4ff; font-size: 11px; }
+  .finding .sugg { color: #9a9a9a; font-size: 11px; }
+  .finding a { color: #6ab0ff; font-size: 11px; }
+  .ok { color: #30d158; font-weight: 600; margin-top: 10px; }
+  label.toggle { display: flex; gap: 6px; align-items: center; color: #ccc; }
+  hr { border: 0; border-top: 1px solid #333; margin: 12px 0; }
+  .section { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+  <h1>DesignChecker</h1>
+  <div class="row">
+    <span class="dot off" id="dot"></span>
+    <span id="status">bridge non raggiungibile — avvia: dc serve</span>
+  </div>
+  <div class="row">
+    <button id="btn-export" disabled>Esporta selezione e valida</button>
+  </div>
+  <div class="row">
+    <label class="toggle">
+      <input type="checkbox" id="watch" disabled> Tempo reale sul frame selezionato
+    </label>
+  </div>
+  <div id="findings"></div>
+  <div id="summary"></div>
+  <hr>
+  <div class="section">Scrivi su canvas</div>
+  <div class="row">
+    <input type="text" id="screen-id" placeholder="id schermata (es. home2)">
+    <button id="btn-render" class="secondary" disabled>Render</button>
+  </div>
+  <div class="row">
+    <button id="btn-clear" class="secondary">Pulisci annotazioni</button>
+  </div>
+
+<script>
+'use strict';
+const BRIDGE = 'http://127.0.0.1:7357';
+let lastMap = {};
+
+const $ = (id) => document.getElementById(id);
+
+async function bridge(path, options) {
+  const res = await fetch(BRIDGE + path, options);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+async function boot() {
+  try {
+    const health = await bridge('/health');
+    const [catalog, tokens] = await Promise.all([bridge('/catalog'), bridge('/tokens')]);
+    parent.postMessage({ pluginMessage: { type: 'init-data', catalog, tokens } }, '*');
+    $('dot').className = 'dot on';
+    $('status').textContent = 'bridge attivo — DesignChecker v' + health.version;
+    $('btn-export').disabled = false;
+    $('watch').disabled = false;
+    $('btn-render').disabled = false;
+  } catch (e) {
+    $('dot').className = 'dot off';
+    $('status').textContent = 'bridge non raggiungibile — avvia: dc serve';
+  }
+}
+
+function renderFindings(data) {
+  const box = $('findings');
+  box.innerHTML = '';
+  const findings = data.findings || [];
+  const errors = findings.filter((f) => f.severity === 'error').length;
+  $('summary').innerHTML = findings.length === 0
+    ? '<div class="ok">✓ Nessuna violazione</div>'
+    : '<div class="section">' + errors + ' errori · ' + (findings.length - errors) + ' warning</div>';
+  for (const f of findings) {
+    const div = document.createElement('div');
+    div.className = 'finding ' + f.severity;
+    div.innerHTML =
+      '<div class="rule">' + (f.severity === 'error' ? '✗ ' : '⚠ ') + f.rule_id + '</div>' +
+      '<div class="node">Nodo: ' + f.node_id + '</div>' +
+      '<div>' + f.message + '</div>' +
+      (f.suggestion ? '<div class="sugg">→ ' + f.suggestion + '</div>' : '') +
+      (f.source_url ? '<a href="' + f.source_url + '" target="_blank">' + f.source + '</a>' : '');
+    box.appendChild(div);
+  }
+  parent.postMessage({ pluginMessage: { type: 'annotate', findings, map: lastMap } }, '*');
+}
+
+async function validateScreen(screen) {
+  const data = await bridge('/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ screen }),
+  });
+  renderFindings(data);
+  $('status').textContent = 'audit salvato: ' + (data.path || '').split('/').pop();
+}
+
+window.onmessage = async (event) => {
+  const msg = event.data.pluginMessage;
+  if (!msg) return;
+  if (msg.type === 'screen-exported') {
+    lastMap = msg.map || {};
+    try {
+      await validateScreen(msg.screen);
+    } catch (e) {
+      $('status').textContent = 'bridge irraggiungibile durante la validazione';
+    }
+  }
+  if (msg.type === 'error') {
+    $('status').textContent = msg.message;
+  }
+  if (msg.type === 'rendered') {
+    $('status').textContent = '✓ Creato sul canvas: ' + msg.name;
+  }
+};
+
+$('btn-export').onclick = () => {
+  parent.postMessage({ pluginMessage: { type: 'export-selection' } }, '*');
+};
+
+$('watch').onchange = (e) => {
+  parent.postMessage({ pluginMessage: { type: e.target.checked ? 'watch-start' : 'watch-stop' } }, '*');
+  $('status').textContent = e.target.checked
+    ? 'tempo reale attivo: modifica il frame e guarda qui'
+    : 'tempo reale disattivato';
+};
+
+$('btn-render').onclick = async () => {
+  const id = $('screen-id').value.trim();
+  if (!id) return;
+  try {
+    const screen = await bridge('/screen/' + encodeURIComponent(id));
+    parent.postMessage({ pluginMessage: { type: 'render', screen } }, '*');
+  } catch (e) {
+    $('status').textContent = 'screen "' + id + '" non trovato (importalo prima)';
+  }
+};
+
+$('btn-clear').onclick = () => {
+  parent.postMessage({ pluginMessage: { type: 'clear-annotations' } }, '*');
+};
+
+boot();
+</script>
+</body>
+</html>

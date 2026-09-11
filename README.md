@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP + v0.2 + importer Figma e codice funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen verso progetto Expo reale + **import da file Figma collegato** e **da codice .tsx esistente**, con audit immediato. Dopo l'import, DesignChecker chiede **dove generare il codice**: nuovo progetto su Desktop o progetto esistente (D28). 54 test OK. Decisioni D1–D28.
+🟢 **MVP → v0.4 (plugin Figma) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma**. 63 test OK. Decisioni D1–D29.
 
 ### Installazione (una volta sola)
 
@@ -70,17 +70,32 @@ designchecker project ~/Desktop/mia-app   # collega/cambia
 designchecker project --forget        # scollega
 ```
 
+### Plugin Figma (real-time + scrittura canvas, senza rate limit)
+
+```bash
+# 1. In un terminale, dalla cartella del progetto:
+designchecker serve          # bridge locale su http://127.0.0.1:7357 (lasciarlo aperto)
+```
+
+2. In Figma (desktop o browser): **Menu → Plugins → Development → Import plugin from manifest…** → seleziona `DesignChecker/plugin/manifest.json`
+3. Seleziona un frame-schermata sul canvas → **Plugins → Development → DesignChecker**
+4. Nel pannello: **"Esporta selezione e valida"** → audit con errori/warning + rettangoli rossi/arancio disegnati sul canvas sui nodi che violano le regole
+5. Attiva **"Tempo reale"**: ogni modifica al frame viene ri-validata (debounce ~1s) e le annotazioni si aggiornano da sole
+6. **Scrittura**: inserisci l'id di uno screen importato (es. `home2`) → **Render** → il plugin crea il frame nativo sul canvas dal JSON
+```
+
 ⚠️ **Preview:** Expo Go SDK 56+ non è più sugli store — su iOS usa una dev build (`npx expo run:ios` con Xcode) o `eas go`; su Android Expo Go via CLI (decisione D19).
 
 ### Struttura
 
 ```
-├── designchecker/     ← tokens, validator, report, cli, loader, codegen, importer_figma, importer_code
+├── designchecker/     ← tokens, validator, report, cli, loader, codegen, importer_figma, importer_code, serve (bridge)
+├── plugin/            ← plugin Figma (manifest.json, code.js, ui.html): export, annotazioni real-time, render canvas
 ├── tools/             ← tsx2json.cjs: parser statico TSX (Node + @babel/parser) per dc import code
 ├── rules/             ← 6 file: ios-hig, material3, wcag, design-system, expo-rn, ux-heuristics
 ├── components.catalog.yaml
 ├── examples/          ← tokens.json, schermate di esempio, generated-app/ (progetto Expo)
-├── tests/             ← 51 test (validatore + codegen + importer)
+├── tests/             ← 63 test (validatore + codegen + importer + bridge)
 └── docs/              ← la progettazione completa
 ```
 

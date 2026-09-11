@@ -2,43 +2,45 @@
   "schema_version": "0.1.0",
   "meta": {
     "id": "home",
-    "name": "home (import codice)",
-    "route": "/home",
+    "name": "Home — SpeseCondivise (conforme)",
+    "route": "/",
     "status": "draft",
     "source": {
-      "kind": "code",
-      "path": "examples/generated-app/src/screens/home/index.tsx",
-      "confidence": 1.0
-    }
+      "kind": "generated",
+      "model": "kimi-k2"
+    },
+    "updated_at": "2026-09-10T14:30:00Z"
   },
   "root": {
     "id": "screen-home",
     "type": "Screen",
-    "props": {},
     "layout": {
-      "padding": {
-        "horizontal": "{spacing.4}"
-      },
+      "direction": "column",
       "safe_area": true,
       "sizing": {
         "w": "fill",
         "h": "fill"
+      },
+      "padding": {
+        "horizontal": "{spacing.4}"
       }
     },
     "style": {
       "background": "{color.surface}"
     },
-    "meta": {
-      "source": "code",
-      "confidence": 1.0,
-      "rn_tag": "SafeAreaView"
-    },
     "children": [
       {
         "id": "header",
         "type": "AppHeader",
-        "props": {},
+        "props": {
+          "title": "Ciao Sara",
+          "subtitle": "Casa Rossi · 3 membri"
+        },
         "layout": {
+          "sizing": {
+            "w": "fill",
+            "h": "hug"
+          },
           "padding": {
             "vertical": "{spacing.4}"
           }
@@ -46,69 +48,27 @@
         "style": {
           "color": "{color.text-primary}"
         },
-        "meta": {
-          "source": "code",
-          "confidence": 0.75,
-          "rn_tag": "View"
-        },
         "a11y": {
           "role": "header"
-        },
-        "children": [
-          {
-            "id": "header-title",
-            "type": "Text",
-            "props": {
-              "content": "Ciao Sara",
-              "variant": "title"
-            },
-            "layout": {},
-            "style": {
-              "color": "{color.text-primary}"
-            },
-            "meta": {
-              "source": "code",
-              "confidence": 1.0,
-              "rn_tag": "Text"
-            }
-          },
-          {
-            "id": "header-subtitle",
-            "type": "Text",
-            "props": {
-              "content": "Casa Rossi · 3 membri",
-              "variant": "body"
-            },
-            "layout": {},
-            "style": {
-              "color": "{color.text-secondary}"
-            },
-            "meta": {
-              "source": "code",
-              "confidence": 1.0,
-              "rn_tag": "Text"
-            }
-          }
-        ]
+        }
       },
       {
         "id": "balance-card",
         "type": "Card",
-        "props": {},
         "layout": {
+          "direction": "column",
+          "gap": "{spacing.2}",
           "padding": {
             "all": "{spacing.4}"
           },
-          "gap": "{spacing.2}"
+          "sizing": {
+            "w": "fill",
+            "h": "hug"
+          }
         },
         "style": {
           "background": "{color.surface-raised}",
           "radius": "{radius.lg}"
-        },
-        "meta": {
-          "source": "code",
-          "confidence": 0.7,
-          "rn_tag": "View"
         },
         "children": [
           {
@@ -118,14 +78,14 @@
               "content": "Il tuo saldo",
               "variant": "caption"
             },
-            "layout": {},
+            "layout": {
+              "sizing": {
+                "w": "hug",
+                "h": "hug"
+              }
+            },
             "style": {
               "color": "{color.text-secondary}"
-            },
-            "meta": {
-              "source": "code",
-              "confidence": 1.0,
-              "rn_tag": "Text"
             }
           },
           {
@@ -135,14 +95,14 @@
               "content": "+ 24,50 €",
               "variant": "title"
             },
-            "layout": {},
+            "layout": {
+              "sizing": {
+                "w": "hug",
+                "h": "hug"
+              }
+            },
             "style": {
               "color": "{color.success}"
-            },
-            "meta": {
-              "source": "code",
-              "confidence": 1.0,
-              "rn_tag": "Text"
             },
             "a11y": {
               "label": "Saldo positivo di 24 euro e 50"
@@ -157,116 +117,119 @@
           "content": "Spese recenti",
           "variant": "heading"
         },
-        "layout": {},
+        "layout": {
+          "sizing": {
+            "w": "hug",
+            "h": "hug"
+          },
+          "padding": {
+            "top": "{spacing.6}",
+            "bottom": "{spacing.2}"
+          }
+        },
         "style": {
           "color": "{color.text-primary}"
-        },
-        "meta": {
-          "source": "code",
-          "confidence": 1.0,
-          "rn_tag": "Text"
         }
       },
       {
-        "id": "flat-list-8",
+        "id": "expense-list",
         "type": "List",
-        "props": {},
-        "layout": {},
-        "style": {},
-        "meta": {
-          "source": "code",
-          "confidence": 1.0,
-          "rn_tag": "FlatList"
+        "props": {
+          "data_source": "expenses.recent",
+          "row_component": "ExpenseRow",
+          "key_extractor": "expense.id"
         },
-        "children": [
-          {
-            "id": "expense-row",
-            "type": "ListRow",
-            "props": {
-              "min_height": 48
-            },
-            "layout": {
-              "padding": {
-                "horizontal": "{spacing.4}",
-                "vertical": "{spacing.2}"
-              }
-            },
-            "style": {
-              "radius": "{radius.sm}"
-            },
-            "meta": {
-              "source": "code",
-              "confidence": 0.9,
-              "rn_tag": "Pressable",
-              "a11y_dynamic": true,
-              "via_import": "ExpenseRow"
-            },
-            "a11y": {
-              "role": "button",
-              "label": "(dinamica: dai dati della riga)"
-            }
+        "layout": {
+          "sizing": {
+            "w": "fill",
+            "h": "fill"
           },
-          {
-            "id": "empty-state",
-            "type": "EmptyState",
+          "gap": "{spacing.2}"
+        },
+        "style": {},
+        "states": {
+          "loading": {
+            "replace_with": "SkeletonList"
+          },
+          "empty": {
+            "replace_with": "EmptyState",
             "props": {
               "message": "Nessuna spesa ancora",
-              "action_label": "Aggiungi la prima spesa",
-              "action": "navigate:/add-expense"
-            },
-            "layout": {
-              "padding": {
-                "all": "{spacing.6}"
-              },
-              "gap": "{spacing.4}"
-            },
-            "style": {},
-            "meta": {
-              "source": "code",
-              "confidence": 0.9,
-              "rn_tag": "View",
-              "via_import": "EmptyState"
-            },
-            "children": [
-              {
-                "id": "message",
-                "type": "Text",
-                "props": {
-                  "content": "{…}",
-                  "variant": "body"
-                },
-                "layout": {},
-                "style": {
-                  "color": "{color.text-secondary}"
-                },
-                "meta": {
-                  "source": "code",
-                  "confidence": 1.0,
-                  "rn_tag": "Text"
-                }
+              "action": {
+                "label": "Aggiungi la prima spesa",
+                "action": "navigate:/add-expense"
               }
-            ]
+            }
+          },
+          "error": {
+            "replace_with": "ErrorState",
+            "props": {
+              "retry_action": {
+                "label": "Riprova",
+                "action": "reload:expenses.recent"
+              }
+            }
           }
-        ]
+        }
       },
       {
         "id": "add-expense-fab",
         "type": "Fab",
         "props": {
-          "min_height": 56,
+          "icon": "plus",
           "label": "Aggiungi spesa",
           "action": "navigate:/add-expense"
         },
-        "layout": {},
-        "style": {},
-        "meta": {
-          "source": "code",
-          "confidence": 0.85,
-          "rn_tag": "Pressable"
+        "layout": {
+          "position": "bottom-trailing",
+          "offset": {
+            "x": "{spacing.4}",
+            "y": "{spacing.4}"
+          }
+        },
+        "style": {
+          "background": "{color.brand.primary}",
+          "foreground": "{color.brand.on-primary}"
         },
         "a11y": {
           "role": "button",
           "label": "Aggiungi una nuova spesa"
+        },
+        "semantics": {
+          "primary_action": true
+        }
+      },
+      {
+        "id": "main-tabs",
+        "type": "TabBar",
+        "props": {
+          "tabs": [
+            {
+              "id": "home",
+              "icon": "house",
+              "label": "Home",
+              "route": "/"
+            },
+            {
+              "id": "groups",
+              "icon": "person-2",
+              "label": "Gruppi",
+              "route": "/groups"
+            },
+            {
+              "id": "profile",
+              "icon": "person",
+              "label": "Profilo",
+              "route": "/profile"
+            }
+          ]
+        },
+        "layout": {
+          "position": "bottom"
+        },
+        "style": {},
+        "semantics": {
+          "navigation_role": "root_tabs"
         }
       }
     ]
