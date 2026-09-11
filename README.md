@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente). 96 test OK. Decisioni D1–D31.
+🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente). 99 test OK. Decisioni D1–D31.
 
 ### Installazione (una volta sola)
 
@@ -76,6 +76,16 @@ designchecker review imports/home2.screen.json   # valutazione qualitativa del d
 designchecker fix imports/home2.screen.json      # l'AI propone una patch, il validatore approva
 ```
 
+Provider cloud supportati (selezionabili in `dc ai` incollando la API key):
+- **Kimi Code** — se hai un abbonamento Kimi con Kimi Code incluso: genera la chiave
+  dalla console Kimi Code (kimi.com/code) e incollala in `dc ai`. Usa la quota
+  dell'abbonamento, non crediti API separati. ⚠️ Le chiavi della console Kimi Code,
+  di platform.kimi.ai e di platform.moonshot.cn NON sono intercambiabili (401).
+- **Kimi API pay-as-you-go**, **Claude**, **OpenAI** — con la rispettiva API key
+- **HuggingFace Inference** — token da huggingface.co/settings/tokens; crediti
+  mensili gratuiti inclusi anche negli account free
+- **Endpoint custom** OpenAI-compatibile (base URL + modello + chiave)
+
 L'AI non tocca mai il JSON senza permesso del validatore deterministico: una patch
 è applicata solo se riduce gli errori senza aumentare i warning (decisione D31).
 
@@ -105,7 +115,7 @@ designchecker serve          # bridge locale su http://localhost:7357 (lasciarlo
 ├── rules/             ← 6 file: ios-hig, material3, wcag, design-system, expo-rn, ux-heuristics
 ├── components.catalog.yaml
 ├── examples/          ← tokens.json, schermate di esempio, generated-app/ (progetto Expo)
-├── tests/             ← 96 test (validatore + codegen + importer + bridge + AI)
+├── tests/             ← 99 test (validatore + codegen + importer + bridge + AI)
 └── docs/              ← la progettazione completa
 ```
 

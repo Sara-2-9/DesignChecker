@@ -161,6 +161,34 @@ class TestProviders(unittest.TestCase):
         self.assertTrue(claude.detected)
         self.assertTrue(claude.models)
 
+    def test_detect_kimicode_via_config(self):
+        config = {"ai": {"keys": {"kimicode": "sk-kimi-code"}}}
+        def fail(url, payload=None, headers=None, timeout=1.5):
+            raise ConnectionError(url)
+        providers = ai.detect_providers(config, http_json=fail)
+        kc = next(p for p in providers if p.pid == "kimicode")
+        self.assertTrue(kc.detected)
+        self.assertIn("coding", kc.base_url)
+        self.assertEqual(ai.api_key_for(kc, config), "sk-kimi-code")
+
+    def test_detect_custom_via_config(self):
+        config = {"ai": {"base_url": "https://mio-host/v1", "model": "mio-modello",
+                         "keys": {"custom": "k"}}}
+        def fail(url, payload=None, headers=None, timeout=1.5):
+            raise ConnectionError(url)
+        providers = ai.detect_providers(config, http_json=fail)
+        custom = next(p for p in providers if p.pid == "custom")
+        self.assertTrue(custom.detected)
+        self.assertEqual(custom.base_url, "https://mio-host/v1")
+        self.assertIn("mio-modello", custom.models)
+
+    def test_custom_senza_config_non_rilevato(self):
+        def fail(url, payload=None, headers=None, timeout=1.5):
+            raise ConnectionError(url)
+        providers = ai.detect_providers({}, http_json=fail)
+        custom = next(p for p in providers if p.pid == "custom")
+        self.assertFalse(custom.detected)
+
     def test_pick_model_preferisce_hint(self):
         p = ai.Provider("ollama", "Ollama", "A", "openai",
                         models=["llama3.2:3b", "qwen3:8b"])

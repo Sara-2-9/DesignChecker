@@ -61,7 +61,8 @@ class Bridge:
         if tmpl is None or not model:
             return None, None, config
         p = _ai.Provider(tmpl.pid, tmpl.label, tmpl.group, tmpl.style,
-                         tmpl.base_url, tmpl.env_key, [model], True)
+                         ai_cfg.get("base_url") or tmpl.base_url, tmpl.env_key,
+                         [model], True, "", tmpl.alt_env)
         return p, model, config
 
     def health(self) -> dict:

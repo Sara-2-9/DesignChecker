@@ -472,7 +472,8 @@ def _resolve_provider(config: dict, task: str = "patch_fix"):
     if tmpl is None:
         return None, None
     p = _ai.Provider(tmpl.pid, tmpl.label, tmpl.group, tmpl.style,
-                     tmpl.base_url, tmpl.env_key, list(tmpl.models), True)
+                     ai_cfg.get("base_url") or tmpl.base_url, tmpl.env_key,
+                     list(tmpl.models), True, "", tmpl.alt_env)
     if not model:
         detected = {d.pid: d for d in _ai.detect_providers(config)}
         if detected.get(pid) and detected[pid].models:
@@ -508,40 +509,66 @@ def _ai_command(args) -> None:
     agents = _ai.cli_agents_present()
     if agents:
         print(f"\nℹ Rilevati CLI agent: {', '.join(agents)}. DesignChecker non li "
-              "esegue: se sei abbonato, puoi generare una API key dal provider.")
+              "esegue: la stessa chiave del provider (es. Kimi Code) funziona anche qui.")
 
-    if not avail:
-        print("\nNessun provider disponibile. Opzioni:")
-        print("  • Locale: installa Ollama (ollama.com) e `ollama pull qwen3:8b`,")
-        print("    oppure avvia LM Studio con un modello caricato.")
-        print("  • Cloud: esporta una API key, es. export MOONSHOT_API_KEY=...")
-        sys.exit(2)
+    # Opzioni: provider gia' pronti + provider cloud configurabili incollando la chiave
+    options = [(p, "use") for p in avail]
+    options += [(p, "key") for p in providers if p.group == "B" and not p.detected]
 
     if not sys.stdin.isatty():
+        if not avail:
+            print("\nNessun provider rilevato. Configura una API key in env o "
+                  "nel config, oppure avvia Ollama/LM Studio.", file=sys.stderr)
+            sys.exit(2)
         p = avail[0]
         model = _ai.pick_model(p)
         print(f"\n(non interattivo) Uso il primo disponibile: {p.label} · {model}")
     else:
         print()
-        for i, p in enumerate(avail, 1):
-            model = _ai.pick_model(p)
-            print(f"  [{i}] {p.label} — modello suggerito: {model or '?'}")
+        for i, (p, mode) in enumerate(options, 1):
+            if mode == "use":
+                print(f"  [{i}] {p.label} — pronto, modello: {_ai.pick_model(p) or '?'}")
+            else:
+                print(f"  [{i}] {p.label} — incolla la API key per attivarlo")
         choice = input("Scegli il provider (numero): ").strip()
         try:
-            p = avail[int(choice) - 1]
+            p, mode = options[int(choice) - 1]
         except (ValueError, IndexError):
             print("Scelta non valida.", file=sys.stderr)
             sys.exit(2)
-        model = _ai.pick_model(p)
-        if len(p.models) > 1:
-            alt = input(f"Modello [{model}]: ").strip()
-            if alt:
-                model = alt
+
+        import getpass
+        if p.pid == "custom":
+            base_url = input("Base URL OpenAI-compatibile (es. https://host/v1): ").strip()
+            if not base_url:
+                print("Base URL obbligatoria.", file=sys.stderr)
+                sys.exit(2)
+            p.base_url = base_url
+            config.setdefault("ai", {})["base_url"] = base_url
+            model = input("Nome modello (es. mia-org/mio-modello): ").strip()
+        else:
+            model = _ai.pick_model(p)
+            if len(p.models) > 1 or not model:
+                alt = input(f"Modello [{model or 'da specificare'}]: ").strip()
+                if alt:
+                    model = alt
+        if mode == "key":
+            key = getpass.getpass(f"API key per {p.label} (nascosta, salvata "
+                                  "in ~/.designchecker/config.json): ").strip()
+            if not key:
+                print("Nessuna chiave inserita.", file=sys.stderr)
+                sys.exit(2)
+            config.setdefault("ai", {}).setdefault("keys", {})[p.pid] = key
+            p.detected = True
 
     print(f"\nProbe: {p.label} · {model}…")
     ok, detail = _ai.probe(p, model, config)
     if not ok:
         print(f"✗ Il provider non risponde: {detail}", file=sys.stderr)
+        if p.pid == "kimicode":
+            print("  Suggerimento: la chiave Kimi Code si genera dalla console "
+                  "Kimi Code (kimi.com/code), NON da platform.kimi.ai — "
+                  "le chiavi non sono intercambiabili (errore 401).")
         sys.exit(1)
     print(f"✓ Risponde: {detail}")
     config.setdefault("ai", {})["provider"] = p.pid

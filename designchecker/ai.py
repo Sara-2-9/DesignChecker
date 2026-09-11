@@ -47,23 +47,33 @@ class Provider:
     models: list = field(default_factory=list)
     detected: bool = False
     note: str = ""
+    alt_env: str = ""     # seconda variabile d'ambiente accettata
 
 
 PROVIDERS = [
     Provider("ollama", "Ollama", "A", "openai", OLLAMA_URL + "/v1"),
     Provider("lmstudio", "LM Studio", "A", "openai", LMSTUDIO_URL + "/v1"),
-    Provider("kimi", "Kimi (Moonshot)", "B", "openai",
+    Provider("kimicode", "Kimi Code (abbonamento)", "B", "openai",
+             "https://api.kimi.com/coding/v1", "KIMI_API_KEY",
+             alt_env="KIMI_CODE_API_KEY"),
+    Provider("kimi", "Kimi API (pay-as-you-go)", "B", "openai",
              "https://api.moonshot.ai/v1", "MOONSHOT_API_KEY"),
     Provider("anthropic", "Claude (Anthropic)", "B", "anthropic",
              "https://api.anthropic.com", "ANTHROPIC_API_KEY"),
     Provider("openai", "OpenAI", "B", "openai",
              "https://api.openai.com/v1", "OPENAI_API_KEY"),
+    Provider("huggingface", "HuggingFace Inference", "B", "openai",
+             "https://router.huggingface.co/v1", "HF_TOKEN"),
+    Provider("custom", "Altro endpoint OpenAI-compatibile", "B", "openai"),
 ]
 
 DEFAULT_MODELS = {
-    "kimi": ["kimi-k2-0711-preview", "moonshot-v1-128k"],
+    "kimicode": ["kimi-k2.7-code", "kimi-k3"],
+    "kimi": ["kimi-k2.6", "kimi-k2.7-code"],
     "anthropic": ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5"],
     "openai": ["gpt-4o", "gpt-4o-mini"],
+    "huggingface": ["Qwen/Qwen3-32B", "deepseek-ai/DeepSeek-R1:fastest",
+                    "meta-llama/Llama-3.3-70B-Instruct"],
 }
 
 
@@ -101,8 +111,20 @@ def _detect_cloud(p: Provider, config: dict) -> None:
     if key:
         p.detected = True
         p.models = list(DEFAULT_MODELS.get(p.pid, []))
-        src = "env " + p.env_key if os.environ.get(p.env_key) else "config"
-        p.note = f"API key ({src})"
+        env_hit = next((e for e in (p.env_key, p.alt_env)
+                        if e and os.environ.get(e)), None)
+        p.note = f"API key ({'env ' + env_hit if env_hit else 'config'})"
+
+
+def _detect_custom(p: Provider, config: dict) -> None:
+    """Endpoint personalizzato: rilevato se base_url + chiave sono nel config."""
+    ai_cfg = config.get("ai", {})
+    if ai_cfg.get("base_url") and api_key_for(p, config):
+        p.detected = True
+        p.base_url = ai_cfg["base_url"]
+        if ai_cfg.get("model"):
+            p.models = [ai_cfg["model"]]
+        p.note = f"endpoint personalizzato ({ai_cfg['base_url']})"
 
 
 def detect_providers(config: dict | None = None, http_json=_http_json) -> list[Provider]:
@@ -111,12 +133,14 @@ def detect_providers(config: dict | None = None, http_json=_http_json) -> list[P
     out = []
     for tmpl in PROVIDERS:
         p = Provider(tmpl.pid, tmpl.label, tmpl.group, tmpl.style,
-                     tmpl.base_url, tmpl.env_key)
+                     tmpl.base_url, tmpl.env_key, alt_env=tmpl.alt_env)
         try:
             if p.pid == "ollama":
                 _detect_ollama(p, http_json)
             elif p.pid == "lmstudio":
                 _detect_lmstudio(p, http_json)
+            elif p.pid == "custom":
+                _detect_custom(p, config)
             else:
                 _detect_cloud(p, config)
         except Exception:
@@ -131,8 +155,10 @@ def cli_agents_present() -> list[str]:
 
 
 def api_key_for(p: Provider, config: dict) -> str:
-    return (os.environ.get(p.env_key)
-            or (config.get("ai", {}).get("keys", {}) or {}).get(p.pid, ""))
+    for env in (p.env_key, p.alt_env):
+        if env and os.environ.get(env):
+            return os.environ[env]
+    return (config.get("ai", {}).get("keys", {}) or {}).get(p.pid, "")
 
 
 def pick_model(p: Provider, task: str = "patch_fix") -> str:
