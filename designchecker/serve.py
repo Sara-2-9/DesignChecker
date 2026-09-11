@@ -83,11 +83,21 @@ class Bridge:
         return result
 
     def get_screen(self, screen_id: str) -> dict | None:
-        safe = "".join(c for c in screen_id if c.isalnum() or c in "-_")  # anti path traversal
+        from .codegen import kebab
+        # normalizza: "Home2" -> "home2" (l'id dei file e' sempre kebab-case)
+        safe = kebab(screen_id)
+        safe = "".join(c for c in safe if c.isalnum() or c in "-_")  # anti path traversal
         path = self.root / "imports" / f"{safe}.screen.json"
         if not path.is_file():
             return None
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def list_screens(self) -> list[str]:
+        """Id degli screen importati (per l'autocompletamento nel plugin)."""
+        imports = self.root / "imports"
+        if not imports.is_dir():
+            return []
+        return sorted(p.name[: -len(".screen.json")] for p in imports.glob("*.screen.json"))
 
 
 def make_handler(bridge: Bridge):
@@ -119,6 +129,8 @@ def make_handler(bridge: Bridge):
                 self._send(200, bridge.catalog_payload())
             elif self.path == "/tokens":
                 self._send(200, bridge.tokens_payload())
+            elif self.path == "/screens":
+                self._send(200, {"screens": bridge.list_screens()})
             elif self.path.startswith("/screen/"):
                 screen = bridge.get_screen(self.path[len("/screen/"):])
                 self._send(200, screen) if screen else self._send(404, {"error": "non trovato"})

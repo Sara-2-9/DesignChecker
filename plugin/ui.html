@@ -62,7 +62,8 @@
   <hr>
   <div class="section">Scrivi su canvas</div>
   <div class="row">
-    <input type="text" id="screen-id" placeholder="id schermata (es. home2)">
+    <input type="text" id="screen-id" list="screen-list" placeholder="id schermata (es. home2)">
+    <datalist id="screen-list"></datalist>
     <button id="btn-render" class="secondary" disabled>Render</button>
   </div>
   <div class="row">
@@ -92,6 +93,11 @@ async function boot() {
     $('btn-export').disabled = false;
     $('watch').disabled = false;
     $('btn-render').disabled = false;
+    try {
+      const list = await bridge('/screens');
+      $('screen-list').innerHTML = (list.screens || [])
+        .map((s) => '<option value="' + s + '">').join('');
+    } catch (e) { /* niente autocompletamento: non blocca */ }
   } catch (e) {
     $('dot').className = 'dot off';
     $('status').textContent = 'bridge non raggiungibile — avvia: dc serve';

@@ -52,6 +52,15 @@ class TestBridge(unittest.TestCase):
         self.assertIsNone(self.bridge.get_screen("../../etc/passwd"))
         self.assertIsNone(self.bridge.get_screen("non-esiste"))
 
+    def test_get_screen_normalizza_maiuscole(self):
+        """'Home' deve trovare home.screen.json (id kebab-case)."""
+        screen = load_screen(ROOT / "examples" / "home.screen.json")
+        self.bridge.import_screen(screen)
+        self.assertIsNotNone(self.bridge.get_screen("Home"))
+
+    def test_list_screens(self):
+        self.assertIn("home", self.bridge.list_screens())
+
 
 class TestBridgeHTTP(unittest.TestCase):
     """Roundtrip reale via HTTP su porta effimera."""
