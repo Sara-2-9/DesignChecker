@@ -13,16 +13,18 @@
 - **Importer Figma** ✅: `dc link figma <url>` + `dc screens` + `dc import figma <frame>` (REST API read-only, PAT) — testato su file Figma reale
 - **Importer codice** ✅: `dc import code <path.tsx>` (helper Node AST, parsing statico; segue gli import dei componenti custom; roundtrip su generated-app: 0 errori) — 11 test
 - **Destinazione codice** ✅ (D28): post-import il CLI chiede nuovo progetto vs esistente; `dc project` per gestire il collegamento; mai sovrascritture senza consenso
-- **Importer screenshot**: `dc import shot <png>` (provider layer + modello vision)
-- Provider layer: rilevamento, menu due gruppi, routing per task, probe test
+- **Provider layer AI** ✅ (D31): rilevamento Ollama/LM Studio/API key, menu due gruppi, probe, routing per task
+- **Fix loop AI** ✅ (D31): `dc fix` — l'LLM propone JSON Patch, il validatore approva o rifiuta
+- **Importer screenshot**: `dc import shot <png>` (provider layer ✅ + modello vision)
 
-## v0.4 — Plugin Figma + editing bidirezionale (IN CORSO — D29)
+## v0.4 — Plugin Figma + editing bidirezionale (IN CORSO — D29, D31)
 - ✅ Plugin: export frame → screen JSON via Plugin API (zero REST, zero rate limit), audit via bridge locale `dc serve`
 - ✅ Annotazioni real-time sul canvas (toggle, debounce 900ms): rettangoli rossi/arancio + regola violata
 - ✅ Scrittura su canvas: render screen JSON → frame nativi (auto-layout, token risolti, dc_id in pluginData)
-- ⏳ Interpretazione prompt → patch → render automatico (serve il provider layer)
+- ✅ Integrazione AI nel plugin: bottoni "Valuta il design" (review consultiva) e "Correggi con AI" (patch gated dal validatore → render automatico)
+- ⏳ Interpretazione prompt libero → patch → render automatico (il fix loop copre gia' le violazioni)
 - ⏳ Sync token → Variables Figma (D22)
-- ⏳ Generatore LLM: proposte di redesign dall'audit, prima schermata dal brief
+- ⏳ Generatore LLM: prima schermata dal brief
 
 ## v0.5 — Chiusura del cerchio
 - Export codice pulito nel repo dell'app esistente (sync, non solo copia)

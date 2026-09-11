@@ -39,6 +39,9 @@
   .finding .sugg { color: #9a9a9a; font-size: 11px; }
   .finding a { color: #6ab0ff; font-size: 11px; }
   .ok { color: #30d158; font-weight: 600; margin-top: 10px; }
+  #ai-out { margin-top: 8px; max-height: 220px; overflow-y: auto; }
+  #ai-out .critique { background: #26262e; border: 1px solid #3a3a4a; border-radius: 6px; padding: 8px; white-space: pre-wrap; }
+  #ai-out .logline { color: #9a9a9a; font-size: 11px; padding: 1px 0; }
   label.toggle { display: flex; gap: 6px; align-items: center; color: #ccc; }
   hr { border: 0; border-top: 1px solid #333; margin: 12px 0; }
   .section { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
@@ -61,6 +64,13 @@
   <div id="findings"></div>
   <div id="summary"></div>
   <hr>
+  <div class="section">AI <span id="ai-model" style="color:#666;text-transform:none"></span></div>
+  <div class="row">
+    <button id="btn-review" class="secondary" disabled>Valuta il design</button>
+    <button id="btn-fix" class="secondary" disabled>Correggi con AI</button>
+  </div>
+  <div id="ai-out"></div>
+  <hr>
   <div class="section">Scrivi su canvas</div>
   <div class="row">
     <input type="text" id="screen-id" list="screen-list" placeholder="id schermata (es. home2)">
@@ -75,6 +85,8 @@
 'use strict';
 const BRIDGE = 'http://localhost:7357';
 let lastMap = {};
+let lastScreen = null;
+let aiBusy = false;
 
 const $ = (id) => document.getElementById(id);
 
@@ -94,6 +106,13 @@ async function boot() {
     $('btn-export').disabled = false;
     $('watch').disabled = false;
     $('btn-render').disabled = false;
+    if (health.ai && health.ai.configured) {
+      $('ai-model').textContent = '· ' + health.ai.label + ' ' + health.ai.model;
+      $('btn-review').disabled = false;
+      $('btn-fix').disabled = false;
+    } else {
+      $('ai-model').textContent = '· non configurata (dc ai)';
+    }
     try {
       const list = await bridge('/screens');
       $('screen-list').innerHTML = (list.screens || [])
@@ -134,6 +153,7 @@ function renderFindings(data) {
 }
 
 async function validateScreen(screen) {
+  lastScreen = screen;
   const data = await bridge('/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -142,6 +162,68 @@ async function validateScreen(screen) {
   renderFindings(data);
   $('status').textContent = 'audit salvato: ' + (data.path || '').split('/').pop();
 }
+
+function aiOut(html) { $('ai-out').innerHTML = html; }
+
+function setAiBusy(busy, label) {
+  aiBusy = busy;
+  $('btn-review').disabled = busy;
+  $('btn-fix').disabled = busy;
+  if (label) $('status').textContent = label;
+}
+
+$('btn-review').onclick = async () => {
+  if (!lastScreen || aiBusy) return;
+  setAiBusy(true, 'valutazione AI in corso…');
+  aiOut('');
+  try {
+    const data = await bridge('/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ screen: lastScreen }),
+    });
+    if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
+    else {
+      aiOut('<div class="critique">' + data.critique.replace(/</g, '&lt;') + '</div>');
+      $('status').textContent = 'valutazione pronta (consultiva: il validatore resta l\'arbitro)';
+    }
+  } catch (e) {
+    $('status').textContent = 'bridge irraggiungibile durante la valutazione';
+  }
+  setAiBusy(false);
+};
+
+$('btn-fix').onclick = async () => {
+  if (!lastScreen || aiBusy) return;
+  setAiBusy(true, 'fix AI in corso: il validatore fara\' da gatekeeper…');
+  aiOut('');
+  try {
+    const data = await bridge('/fix', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ screen: lastScreen }),
+    });
+    if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
+    else {
+      aiOut((data.log || []).map((l) => '<div class="logline">' + l.replace(/</g, '&lt;') + '</div>').join('') +
+        (data.applied
+          ? '<div class="ok">✓ Patch applicata e salvata — renderizzo la versione corretta</div>'
+          : '<div class="finding warning"><div>Nessuna patch accettabile: file invariato</div></div>'));
+      if (data.applied && data.screen) {
+        lastScreen = data.screen;
+        renderFindings(await bridge('/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ screen: data.screen }),
+        }));
+        parent.postMessage({ pluginMessage: { type: 'render', screen: data.screen } }, '*');
+      }
+    }
+  } catch (e) {
+    $('status').textContent = 'bridge irraggiungibile durante il fix';
+  }
+  setAiBusy(false);
+};
 
 window.onmessage = async (event) => {
   const msg = event.data.pluginMessage;

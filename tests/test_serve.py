@@ -178,3 +178,65 @@ class TestEccezioniEGradienti(unittest.TestCase):
         }
         findings = validate(screen, rules, self.bridge.tokens, self.bridge.catalog)
         self.assertNotIn("ds.no-hardcoded-value", {f.rule_id for f in findings})
+
+
+class TestBridgeAI(unittest.TestCase):
+    """Endpoint AI del bridge (D31) con provider finto: niente rete."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bridge = Bridge(ROOT)
+
+    def _fake_provider(self):
+        from designchecker import ai
+        return ai.Provider("ollama", "Ollama", "A", "openai",
+                           "http://localhost:11434/v1"), "qwen3:8b"
+
+    def test_review_e_fix_richiedono_config(self):
+        import designchecker.serve as serve_mod
+        orig = Bridge._ai_provider
+        Bridge._ai_provider = lambda self: (None, None, {})
+        try:
+            screen = load_screen(ROOT / "examples" / "imported-home.screen.json")
+            self.assertIn("error", self.bridge.ai_review(screen))
+            self.assertIn("error", self.bridge.ai_fix(screen))
+        finally:
+            Bridge._ai_provider = orig
+
+    def test_fix_applica_patch_e_salva(self):
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        patch = [{"op": "replace", "path": "/root/style/background",
+                  "value": "token:color.bg.primary"}]
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        Bridge._ai_provider = lambda self: (p, model, {})
+        ai_mod.chat = lambda *a, **k: json.dumps(patch)
+        try:
+            screen = load_screen(ROOT / "examples" / "imported-home.screen.json")
+            before_errors = self.bridge.validate_screen(screen)["errors"]
+            result = self.bridge.ai_fix(screen)
+            self.assertTrue(result.get("applied"), result.get("log"))
+            self.assertEqual(result["ops"], patch)
+            self.assertEqual(result["screen"]["root"]["style"]["background"],
+                             "token:color.bg.primary")
+            after_errors = self.bridge.validate_screen(result["screen"])["errors"]
+            self.assertLess(after_errors, before_errors)
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat
+
+    def test_review_ritorna_testo(self):
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        Bridge._ai_provider = lambda self: (p, model, {})
+        ai_mod.chat = lambda *a, **k: "Gerarchia ok, aumenta il respiro sotto il titolo."
+        try:
+            screen = load_screen(ROOT / "examples" / "home.screen.json")
+            result = self.bridge.ai_review(screen)
+            self.assertIn("Gerarchia", result.get("critique", ""))
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat

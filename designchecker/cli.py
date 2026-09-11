@@ -87,6 +87,22 @@ def main(argv: list[str] | None = None) -> None:
     p_serve = sub.add_parser("serve", help="Bridge locale per il plugin Figma (D29)")
     p_serve.add_argument("--port", type=int, default=7357)
 
+    p_ai = sub.add_parser("ai", help="Configura il provider AI: rileva, menu, probe (D31)")
+    p_ai.add_argument("--probe", action="store_true",
+                      help="Ri-testa il provider salvato senza riconfigurare")
+
+    p_fix = sub.add_parser("fix", help="L'AI propone una patch, il validatore la approva (D31)")
+    p_fix.add_argument("screen", type=Path, help="Percorso dello screen JSON")
+    p_fix.add_argument("--tokens", type=Path, default=None)
+    p_fix.add_argument("--catalog", type=Path, default=None)
+    p_fix.add_argument("--platform", choices=["ios", "android", "both"], default="both")
+
+    p_review = sub.add_parser("review", help="Valutazione qualitativa AI del design (D31)")
+    p_review.add_argument("screen", type=Path, help="Percorso dello screen JSON")
+    p_review.add_argument("--tokens", type=Path, default=None)
+    p_review.add_argument("--catalog", type=Path, default=None)
+    p_review.add_argument("--platform", choices=["ios", "android", "both"], default="both")
+
     args = parser.parse_args(argv)
     root = _find_project_root()
 
@@ -154,6 +170,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "serve":
         from .serve import serve
         serve(root, port=args.port)
+        return
+
+    if args.command == "ai":
+        _ai_command(args)
+        return
+
+    if args.command in ("fix", "review"):
+        _ai_screen_command(args, root, rules)
         return
 
     if args.command in ("link", "screens", "import"):
@@ -433,3 +457,158 @@ def _figma_commands(args, root: Path) -> None:
         has_errors = any(f.severity == "error" for f in findings)
         _offer_codegen(root, screen, tokens, catalog, has_errors)
         sys.exit(1 if has_errors else 0)
+
+
+# ---------------------------------------------------------- AI (D31)
+
+def _resolve_provider(config: dict, task: str = "patch_fix"):
+    """Provider+modello dalla config; None se non configurato."""
+    from . import ai as _ai
+    ai_cfg = config.get("ai") or {}
+    pid, model = ai_cfg.get("provider"), ai_cfg.get("model")
+    if not pid:
+        return None, None
+    tmpl = next((p for p in _ai.PROVIDERS if p.pid == pid), None)
+    if tmpl is None:
+        return None, None
+    p = _ai.Provider(tmpl.pid, tmpl.label, tmpl.group, tmpl.style,
+                     tmpl.base_url, tmpl.env_key, list(tmpl.models), True)
+    if not model:
+        detected = {d.pid: d for d in _ai.detect_providers(config)}
+        if detected.get(pid) and detected[pid].models:
+            p.models = detected[pid].models
+        model = _ai.pick_model(p, task)
+    return p, model
+
+
+def _ai_command(args) -> None:
+    from . import ai as _ai
+
+    config = _load_config()
+
+    if args.probe:
+        p, model = _resolve_provider(config)
+        if p is None:
+            print("Nessun provider configurato. Lancia: dc ai", file=sys.stderr)
+            sys.exit(2)
+        print(f"Probe: {p.label} · modello {model}…")
+        ok, detail = _ai.probe(p, model, config)
+        print(f"{'✓ Risponde' if ok else '✗ Non risponde'}: {detail}")
+        sys.exit(0 if ok else 1)
+
+    print("\n── Provider AI (D31) ───────────────────────────────────")
+    providers = _ai.detect_providers(config)
+    avail = [p for p in providers if p.detected]
+    for group, title in (("A", "Locale"), ("B", "Cloud (API key)")):
+        print(f"\nGruppo {group} — {title}:")
+        for p in [x for x in providers if x.group == group]:
+            mark = "●" if p.detected else "○"
+            extra = f" — {p.note}" if p.note else " — non rilevato"
+            print(f"  {mark} {p.label}{extra}")
+    agents = _ai.cli_agents_present()
+    if agents:
+        print(f"\nℹ Rilevati CLI agent: {', '.join(agents)}. DesignChecker non li "
+              "esegue: se sei abbonato, puoi generare una API key dal provider.")
+
+    if not avail:
+        print("\nNessun provider disponibile. Opzioni:")
+        print("  • Locale: installa Ollama (ollama.com) e `ollama pull qwen3:8b`,")
+        print("    oppure avvia LM Studio con un modello caricato.")
+        print("  • Cloud: esporta una API key, es. export MOONSHOT_API_KEY=...")
+        sys.exit(2)
+
+    if not sys.stdin.isatty():
+        p = avail[0]
+        model = _ai.pick_model(p)
+        print(f"\n(non interattivo) Uso il primo disponibile: {p.label} · {model}")
+    else:
+        print()
+        for i, p in enumerate(avail, 1):
+            model = _ai.pick_model(p)
+            print(f"  [{i}] {p.label} — modello suggerito: {model or '?'}")
+        choice = input("Scegli il provider (numero): ").strip()
+        try:
+            p = avail[int(choice) - 1]
+        except (ValueError, IndexError):
+            print("Scelta non valida.", file=sys.stderr)
+            sys.exit(2)
+        model = _ai.pick_model(p)
+        if len(p.models) > 1:
+            alt = input(f"Modello [{model}]: ").strip()
+            if alt:
+                model = alt
+
+    print(f"\nProbe: {p.label} · {model}…")
+    ok, detail = _ai.probe(p, model, config)
+    if not ok:
+        print(f"✗ Il provider non risponde: {detail}", file=sys.stderr)
+        sys.exit(1)
+    print(f"✓ Risponde: {detail}")
+    config.setdefault("ai", {})["provider"] = p.pid
+    config["ai"]["model"] = model
+    _save_config(config)
+    print(f"✓ Salvato in ~/.designchecker/config.json: {p.pid} · {model}")
+
+
+def _ai_screen_command(args, root: Path, rules) -> None:
+    from . import ai as _ai
+    from . import patcher
+
+    if not args.screen.exists():
+        print(f"File non trovato: {args.screen}", file=sys.stderr)
+        sys.exit(2)
+    config = _load_config()
+    task = "review" if args.command == "review" else "patch_fix"
+    p, model = _resolve_provider(config, task)
+    if p is None or not model:
+        print("Nessun provider AI configurato. Lancia prima: dc ai", file=sys.stderr)
+        sys.exit(2)
+
+    screen = load_screen(args.screen)
+    tokens = TokenStore(load_tokens(args.tokens or (root / "examples" / "tokens.json")))
+    catalog = load_catalog(args.catalog or (root / "components.catalog.yaml"))
+    findings = validate(screen, rules, tokens, catalog, platform=args.platform)
+
+    def chat_fn(messages):
+        return _ai.chat(p, model, messages, config)
+
+    name = screen.get("meta", {}).get("name", str(args.screen))
+
+    if args.command == "review":
+        print(f"── Valutazione AI ({p.label} · {model}) di '{name}' ──\n")
+        messages = patcher.build_review_prompt(screen, findings)
+        try:
+            print(chat_fn(messages).strip())
+        except Exception as e:
+            print(f"✗ Il provider non risponde: {e}", file=sys.stderr)
+            sys.exit(1)
+        print("\n(parere consultivo: il validatore deterministico resta l'arbitro)")
+        return
+
+    # fix
+    print(f"── Fix AI ({p.label} · {model}) su '{name}' ──")
+
+    def validate_fn(scr):
+        fs = validate(scr, rules, tokens, catalog, platform=args.platform)
+        return [f for f in fs if f.severity == "error"], \
+               [f for f in fs if f.severity == "warning"]
+
+    result = patcher.fix_loop(screen, findings, validate_fn, chat_fn)
+    for line in result["log"]:
+        print(f"  {line}")
+    if result["applied"]:
+        import json as _json
+        bak = args.screen.with_suffix(args.screen.suffix + ".bak")
+        if not bak.exists():
+            bak.write_text(args.screen.read_text(encoding="utf-8"), encoding="utf-8")
+        args.screen.write_text(_json.dumps(result["screen"], indent=2,
+                                           ensure_ascii=False), encoding="utf-8")
+        print(f"\n✓ Patch applicata ({len(result['ops'])} operazioni):")
+        for op in result["ops"]:
+            print(f"    {op['op']:7} {op['path']}")
+        print(f"  File aggiornato: {args.screen} (backup: {bak.name})")
+        print("  Su Figma: dal plugin, Render per vedere la versione corretta.")
+    else:
+        print("\n✗ Nessuna correzione applicata: il file resta invariato.")
+        print("  Puoi correggere a mano o riprovare con un altro modello (dc ai).")
+    sys.exit(0 if result["applied"] or result["before"][0] == 0 else 1)

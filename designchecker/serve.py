@@ -6,14 +6,18 @@ e solo verso domini in allowlist. Il bridge e' un server HTTP locale
 del progetto (catalogo, token, screen JSON importati).
 
 Endpoint:
-  GET  /health         -> {"ok": true, "version": ...}
+  GET  /health         -> {"ok": true, "version": ..., "ai": {configured, label, model}}
   GET  /catalog        -> catalogo componenti (dict tipo -> entry)
   GET  /tokens         -> {hex_to_token: {...}, spacing: [{path, value}]}
   POST /validate       -> body: screen JSON; ritorna {"findings": [...], "errors": n}
   POST /import         -> come /validate + salva in imports/<id>.screen.json
   GET  /screen/<id>    -> screen JSON da imports/ (per il render su canvas)
+  POST /review         -> body: screen JSON; ritorna {"critique": "..."} (D31)
+  POST /fix            -> body: screen JSON; patch AI gated dal validatore (D31)
 
 Sicurezza: ascolta solo su loopback; nessuna scrittura fuori da imports/.
+Le chiamate AI escono solo verso il provider scelto dall'utente in `dc ai`;
+l'output del modello passa SEMPRE dal validatore prima di toccare il JSON.
 """
 from __future__ import annotations
 
@@ -38,8 +42,79 @@ class Bridge:
         self.catalog = load_catalog(root / "components.catalog.yaml")
         self.tokens = TokenStore(load_tokens(root / "examples" / "tokens.json"))
 
+    def _ai_config(self) -> dict:
+        path = Path.home() / ".designchecker" / "config.json"
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+    def _ai_provider(self):
+        """(Provider, model) dalla config, o (None, None)."""
+        from . import ai as _ai
+        config = self._ai_config()
+        ai_cfg = config.get("ai") or {}
+        pid, model = ai_cfg.get("provider"), ai_cfg.get("model")
+        tmpl = next((p for p in _ai.PROVIDERS if p.pid == pid), None)
+        if tmpl is None or not model:
+            return None, None, config
+        p = _ai.Provider(tmpl.pid, tmpl.label, tmpl.group, tmpl.style,
+                         tmpl.base_url, tmpl.env_key, [model], True)
+        return p, model, config
+
     def health(self) -> dict:
-        return {"ok": True, "version": __version__, "bridge": "designchecker"}
+        p, model, _ = self._ai_provider()
+        return {"ok": True, "version": __version__, "bridge": "designchecker",
+                "ai": {"configured": p is not None,
+                       "label": p.label if p else None, "model": model}}
+
+    def ai_review(self, screen: dict) -> dict:
+        """Valutazione qualitativa consultiva (D31)."""
+        from . import ai as _ai
+        from . import patcher
+        p, model, config = self._ai_provider()
+        if p is None:
+            return {"error": "Provider AI non configurato: lancia `dc ai`"}
+        findings = validate(screen, self.rules, self.tokens, self.catalog)
+        messages = patcher.build_review_prompt(screen, findings)
+        try:
+            return {"critique": _ai.chat(p, model, messages, config).strip()}
+        except Exception as e:
+            return {"error": f"Il provider non risponde: {e}"}
+
+    def ai_fix(self, screen: dict) -> dict:
+        """Patch AI gated dal validatore (D31). Se accettata, salva in imports/."""
+        from . import ai as _ai
+        from . import patcher
+        p, model, config = self._ai_provider()
+        if p is None:
+            return {"error": "Provider AI non configurato: lancia `dc ai`"}
+        findings = validate(screen, self.rules, self.tokens, self.catalog)
+
+        def validate_fn(scr):
+            fs = validate(scr, self.rules, self.tokens, self.catalog)
+            return [f for f in fs if f.severity == "error"], \
+                   [f for f in fs if f.severity == "warning"]
+
+        def chat_fn(messages):
+            return _ai.chat(p, model, messages, config)
+
+        try:
+            result = patcher.fix_loop(screen, findings, validate_fn, chat_fn)
+        except Exception as e:
+            return {"error": f"Il provider non risponde: {e}"}
+        if result["applied"]:
+            out_dir = self.root / "imports"
+            out_dir.mkdir(exist_ok=True)
+            screen_id = result["screen"].get("meta", {}).get("id", "screen")
+            out_path = out_dir / f"{screen_id}.screen.json"
+            out_path.write_text(json.dumps(result["screen"], indent=2,
+                                           ensure_ascii=False), encoding="utf-8")
+            result["path"] = str(out_path)
+        return result
+
 
     def catalog_payload(self) -> dict:
         return self.catalog
@@ -149,6 +224,10 @@ def make_handler(bridge: Bridge):
                 self._send(200, bridge.validate_screen(screen))
             elif self.path == "/import":
                 self._send(200, bridge.import_screen(screen))
+            elif self.path == "/review":
+                self._send(200, bridge.ai_review(screen))
+            elif self.path == "/fix":
+                self._send(200, bridge.ai_fix(screen))
             else:
                 self._send(404, {"error": "endpoint sconosciuto"})
 

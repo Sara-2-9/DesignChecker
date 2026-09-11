@@ -133,7 +133,7 @@ function catalogMatch(name) {
 const DEVICE_CHROME = /^(status[\s-]?bar|dynamic[\s-]?island|home[\s-]?indicator|notch)/i;
 
 // glifi SF Symbols / private use area: non sono label leggibili
-const PUA = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}]/u;
+const PUA = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}\u{100000}-\u{10FFFD}]/u;
 
 function readableLabel(raw, fallback) {
   const text = (raw || '').trim();

@@ -33,7 +33,7 @@ DEVICE_CHROME = re.compile(r"^(status[\s-]?bar|dynamic[\s-]?island|home[\s-]?ind
                            re.IGNORECASE)
 
 # glifi SF Symbols / private use area: non sono label leggibili
-PUA = re.compile("[\\uE000-\\uF8FF\\U000F0000-\\U000FFFFD]")
+PUA = re.compile("[\\uE000-\\uF8FF\\U000F0000-\\U000FFFFD\\U00100000-\\U0010FFFD]")
 
 
 def readable_label(raw: str | None, fallback: str | None) -> str:
