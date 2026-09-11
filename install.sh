@@ -7,16 +7,16 @@ set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "1/4  Ambiente virtuale…"
+echo "1/5  Ambiente virtuale…"
 if [ ! -d "$DIR/.venv" ]; then
   python3 -m venv "$DIR/.venv"
 fi
 
-echo "2/4  Dipendenze…"
+echo "2/5  Dipendenze…"
 "$DIR/.venv/bin/python3" -m pip install --quiet --upgrade pip
 "$DIR/.venv/bin/python3" -m pip install --quiet pyyaml
 
-echo "3/4  Comando globale in ~/.local/bin…"
+echo "3/5  Comando globale in ~/.local/bin…"
 mkdir -p "$HOME/.local/bin"
 cat > "$HOME/.local/bin/designchecker" <<EOF
 #!/bin/sh

@@ -11,6 +11,7 @@ nella directory corrente (la radice del progetto DesignChecker).
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -75,6 +76,11 @@ def main(argv: list[str] | None = None) -> None:
     p_import.add_argument("--fixture", type=Path, default=None,
                           help="Usa un file JSON locale invece della API (per test)")
 
+    p_project = sub.add_parser("project", help="Mostra/collega il progetto Expo di destinazione")
+    p_project.add_argument("path", nargs="?", default=None,
+                           help="Percorso del progetto da collegare")
+    p_project.add_argument("--forget", action="store_true", help="Scollega il progetto")
+
     sub.add_parser("rules", help="Elenca le regole caricate")
     sub.add_parser("version", help="Mostra la versione")
 
@@ -137,6 +143,10 @@ def main(argv: list[str] | None = None) -> None:
 
     # ---------------------------------------------------------- figma link/import
 
+    if args.command == "project":
+        _project_command(args)
+        return
+
     if args.command in ("link", "screens", "import"):
         _figma_commands(args, root)
 
@@ -160,6 +170,138 @@ def _save_config(config: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_json.dumps(config, indent=2), encoding="utf-8")
     os.chmod(path, 0o600)  # il token non deve essere leggibile da altri
+
+
+def _offer_codegen(root: Path, screen: dict, tokens, catalog, has_errors: bool) -> None:
+    """Dopo un import: chiede dove generare il codice Expo (D28).
+    Nuovo progetto su Desktop, progetto esistente, o quello gia' collegato."""
+    from .codegen import Codegen
+    from .project import has_router_structure, is_expo_project
+
+    if not sys.stdin.isatty():
+        print("\nPer generare il codice: designchecker generate <screen.json> --out <dir>")
+        return
+
+    config = _load_config()
+    linked_path = (config.get("project") or {}).get("path")
+
+    print("\n── Codice Expo ─────────────────────────────────────────")
+    if has_errors:
+        print("⚠ Ci sono errori bloccanti: il codice rispecchiera' il design cosi' com'e'.")
+    print("Vuoi generare il codice di questa schermata in un progetto Expo?")
+    if linked_path:
+        print(f"  [i] Nel progetto collegato: {linked_path}   (default: Invio)")
+    print("  [n] Nuovo progetto (creato sul Desktop)")
+    print("  [e] Un altro progetto esistente")
+    print("  [s] No, mi basta l'import")
+    default = "i" if linked_path else "s"
+    choice = (input(f"Scelta [{'/'.join(c for c in ('i' if linked_path else '', 'n', 'e', 's') if c)}]: ")
+              .strip().lower() or default)
+
+    if choice == "s" or choice not in ("i", "n", "e"):
+        return
+
+    codegen = Codegen(screen, tokens, catalog,
+                      app_name=kebab_app_name(screen))
+
+    if choice == "n":
+        proposed = codegen.app_name
+        name = input(f"Nome del progetto [{proposed}]: ").strip() or proposed
+        target = Path.home() / "Desktop" / name
+        if target.exists() and any(target.iterdir()):
+            print(f"La cartella {target} esiste gia': la tratto come progetto esistente.")
+            choice = "i"
+            linked_path = str(target)
+        else:
+            written = codegen.generate(target)
+            _save_linked_project(config, target)
+            print(f"\n✓ Progetto creato: {target} ({len(written)} file)")
+            _print_next_steps(target)
+            return
+
+    # ---- progetto esistente (collegato o scelto ora)
+    if choice == "e" or not linked_path:
+        raw = input("Percorso della cartella del progetto: ").strip()
+        if not raw:
+            print("Nessun percorso: annullato.")
+            return
+        linked_path = raw
+    project_dir = Path(linked_path).expanduser()
+    if not project_dir.is_dir():
+        print(f"Cartella non trovata: {project_dir}")
+        return
+    if not is_expo_project(project_dir):
+        print(f"⚠ {project_dir} non sembra un progetto Expo (manca la dipendenza 'expo').")
+        if input("Continuare comunque? [s/N]: ").strip().lower() != "s":
+            return
+    elif not has_router_structure(project_dir):
+        print("⚠ Il progetto non usa ancora Expo Router con src/app/: creo la struttura.")
+    _save_linked_project(config, project_dir)
+
+    files = codegen.project_files()
+    conflicts = [project_dir / rel for rel in files if (project_dir / rel).exists()]
+    overwrite = False
+    if conflicts:
+        print("\nQuesti file esistono gia':")
+        for path in conflicts:
+            print(f"  • {path.relative_to(project_dir)}")
+        overwrite = input("Sovrascriverli? [s/N]: ").strip().lower() == "s"
+    written, skipped = codegen.generate_into(project_dir, overwrite=overwrite)
+    print(f"\n✓ Scritti {len(written)} file in {project_dir}")
+    for path in written:
+        print(f"  + {path.relative_to(project_dir)}")
+    if skipped:
+        print(f"  Saltati (gia' esistenti): {len(skipped)}")
+    _print_next_steps(project_dir, existing=True)
+
+
+def kebab_app_name(screen: dict) -> str:
+    from .codegen import kebab
+    name = screen.get("meta", {}).get("name", "mia-app")
+    name = re.sub(r"\s*\(import[^)]*\)", "", name)  # "home (import Figma)" -> "home"
+    return kebab(name) or "mia-app"
+
+
+def _save_linked_project(config: dict, path: Path) -> None:
+    config["project"] = {"path": str(path)}
+    _save_config(config)
+    print(f"  Progetto collegato salvato (cambialo con: designchecker project <path>)")
+
+
+def _print_next_steps(project_dir: Path, existing: bool = False) -> None:
+    print("\nPer vederla sul simulatore:")
+    print(f"  cd {project_dir}")
+    if not existing:
+        print("  npm install && npx expo install --fix")
+    print("  npx expo start   (poi 'i' per iOS / 'a' per Android)")
+
+
+def _project_command(args) -> None:
+    """`dc project` mostra il progetto collegato; `dc project <path>` lo cambia."""
+    from .project import is_expo_project
+    config = _load_config()
+    if getattr(args, "forget", False):
+        config.pop("project", None)
+        _save_config(config)
+        print("✓ Progetto scollegato.")
+        return
+    if args.path:
+        path = Path(args.path).expanduser()
+        if not path.is_dir():
+            print(f"Cartella non trovata: {path}", file=sys.stderr)
+            sys.exit(2)
+        if not is_expo_project(path):
+            print(f"⚠ {path} non sembra un progetto Expo (manca la dipendenza 'expo').")
+        _save_linked_project(config, path)
+        print(f"✓ Progetto collegato: {path}")
+        return
+    current = (config.get("project") or {}).get("path")
+    if current:
+        print(f"Progetto collegato: {current}")
+        print("Cambia: designchecker project <path> · Scollega: designchecker project --forget")
+    else:
+        print("Nessun progetto collegato. Ti verra' chiesto al prossimo import,")
+        print("oppure: designchecker project <path>")
 
 
 def _code_import(args, root: Path) -> None:
@@ -194,7 +336,9 @@ def _code_import(args, root: Path) -> None:
     findings = validate(screen, rules, tokens, catalog, platform=args.platform)
     print_report(findings, screen["meta"]["name"],
                  len([r for r in rules if r.get("phase", "validate") == "validate"]))
-    sys.exit(1 if any(f.severity == "error" for f in findings) else 0)
+    has_errors = any(f.severity == "error" for f in findings)
+    _offer_codegen(root, screen, tokens, catalog, has_errors)
+    sys.exit(1 if has_errors else 0)
 
 
 def _figma_commands(args, root: Path) -> None:
@@ -275,4 +419,6 @@ def _figma_commands(args, root: Path) -> None:
         findings = validate(screen, rules, tokens, catalog, platform=args.platform)
         print_report(findings, screen["meta"]["name"],
                      len([r for r in rules if r.get("phase", "validate") == "validate"]))
-        sys.exit(1 if any(f.severity == "error" for f in findings) else 0)
+        has_errors = any(f.severity == "error" for f in findings)
+        _offer_codegen(root, screen, tokens, catalog, has_errors)
+        sys.exit(1 if has_errors else 0)

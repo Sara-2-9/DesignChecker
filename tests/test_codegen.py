@@ -94,5 +94,56 @@ class TestCodegen(unittest.TestCase):
             self.assertNotRegex(content, r"#[0-9a-fA-F]{6}", msg=rel)
 
 
+class TestGenerateIntoExistingProject(unittest.TestCase):
+    """D28: generazione dentro un progetto Expo esistente, senza scaffold."""
+
+    def setUp(self):
+        self.out = Path(tempfile.mkdtemp(prefix="dc-into-"))
+        screen = load_screen(ROOT / "examples" / "home.screen.json")
+        tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        catalog = load_catalog(ROOT / "components.catalog.yaml")
+        self.codegen = Codegen(screen, tokens, catalog)
+
+    def tearDown(self):
+        shutil.rmtree(self.out, ignore_errors=True)
+
+    def test_project_files_senza_scaffold(self):
+        files = self.codegen.project_files()
+        self.assertIn("src/screens/home/index.tsx", files)
+        self.assertIn("src/app/index.tsx", files)
+        for scaffold in ("package.json", "app.json", "tsconfig.json", "src/app/_layout.tsx"):
+            self.assertNotIn(scaffold, files, msg=f"non deve toccare {scaffold}")
+
+    def test_generate_into_non_sovrascrive_senza_consenso(self):
+        written1, skipped1 = self.codegen.generate_into(self.out)
+        self.assertTrue(written1)
+        self.assertEqual(skipped1, [])
+        # marca un file esistente: non deve essere toccato
+        marker = self.out / "src" / "theme.ts"
+        marker.write_text("// mio tema custom", encoding="utf-8")
+        written2, skipped2 = self.codegen.generate_into(self.out)
+        self.assertEqual(written2, [])
+        self.assertTrue(skipped2)
+        self.assertEqual(marker.read_text(encoding="utf-8"), "// mio tema custom")
+        # con overwrite=True invece sovrascrive
+        written3, _ = self.codegen.generate_into(self.out, overwrite=True)
+        self.assertTrue(written3)
+        self.assertNotEqual(marker.read_text(encoding="utf-8"), "// mio tema custom")
+
+
+class TestProjectDetection(unittest.TestCase):
+    def test_is_expo_project(self):
+        from designchecker.project import is_expo_project
+        tmp = Path(tempfile.mkdtemp(prefix="dc-proj-"))
+        try:
+            self.assertFalse(is_expo_project(tmp))
+            (tmp / "package.json").write_text('{"dependencies": {"react-native": "*"}}')
+            self.assertFalse(is_expo_project(tmp))
+            (tmp / "package.json").write_text('{"dependencies": {"expo": "^57.0.0"}}')
+            self.assertTrue(is_expo_project(tmp))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -635,9 +635,9 @@ export function use{pascal(state)}() {{
                         "android": "expo start --android"},
             "dependencies": {
                 "expo": "^57.0.0",
-                "expo-router": "~7.0.0",
+                "expo-router": "~57.0.0",
                 "expo-status-bar": "*",
-                "react": "19.2.0",
+                "react": "^19.2.3",
                 "react-native": "0.85.0",
                 "react-native-safe-area-context": "*",
                 "react-native-screens": "*"
@@ -658,6 +658,40 @@ export function use{pascal(state)}() {{
                           indent=2)
 
     # ---------------------------------------------------------- entry point
+
+    def project_files(self) -> dict[str, str]:
+        """File della schermata per un progetto Expo ESISTENTE (D28):
+        niente scaffold (package.json/app.json/tsconfig restano quelli del progetto)."""
+        screen_id, component, screen_content = self.screen_tsx()
+        route = (self.screen.get("meta", {}).get("route") or f"/{screen_id}").strip("/")
+        route_rel = "src/app/index.tsx" if not route else f"src/app/{kebab(route)}.tsx"
+        files: dict[str, str] = {
+            route_rel: self.route_tsx(component, screen_id),
+            f"src/screens/{screen_id}/index.tsx": screen_content,
+            "src/components/button.tsx": self.button_tsx(),
+            "src/components/empty-state.tsx": self.empty_state_tsx(),
+            "src/theme.ts": self.theme_ts(),
+        }
+        files.update(self.data_files())
+        for binding in self.list_bindings:
+            files[f"src/screens/{screen_id}/components/{binding['row_kebab']}.tsx"] = \
+                self.row_tsx(binding["row"], binding["state"])
+        return files
+
+    def generate_into(self, project_dir: Path, overwrite: bool = False) -> tuple[list[Path], list[Path]]:
+        """Scrive la schermata in un progetto esistente.
+        Ritorna (scritti, saltati): i file gia' presenti non vengono toccati
+        senza overwrite=True."""
+        written, skipped = [], []
+        for rel, content in self.project_files().items():
+            path = project_dir / rel
+            if path.exists() and not overwrite:
+                skipped.append(path)
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            written.append(path)
+        return written, skipped
 
     def generate(self, out_dir: Path) -> list[Path]:
         screen_id, component, screen_content = self.screen_tsx()
