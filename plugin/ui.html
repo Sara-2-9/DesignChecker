@@ -31,6 +31,7 @@
   }
   .finding.error { border-color: #ff453a; }
   .finding.warning { border-color: #ff9f0a; }
+  .finding.exception { border-color: #666; opacity: .8; }
   .finding .rule { font-weight: 700; font-size: 11px; }
   .finding.error .rule { color: #ff6961; }
   .finding.warning .rule { color: #ffb340; }
@@ -112,6 +113,12 @@ function renderFindings(data) {
   $('summary').innerHTML = findings.length === 0
     ? '<div class="ok">✓ Nessuna violazione</div>'
     : '<div class="section">' + errors + ' errori · ' + (findings.length - errors) + ' warning</div>';
+  for (const e of data.exceptions || []) {
+    const div = document.createElement('div');
+    div.className = 'finding exception';
+    div.innerHTML = '<div class="rule">◦ eccezione</div><div class="sugg">' + e + '</div>';
+    box.appendChild(div);
+  }
   for (const f of findings) {
     const div = document.createElement('div');
     div.className = 'finding ' + f.severity;

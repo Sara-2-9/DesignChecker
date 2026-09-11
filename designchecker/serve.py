@@ -69,16 +69,17 @@ class Bridge:
                 for f in findings
             ],
             "errors": len([f for f in findings if f.severity == "error"]),
+            "exceptions": screen.get("meta", {}).get("exceptions_applied", []),
         }
 
     def import_screen(self, screen: dict) -> dict:
+        result = self.validate_screen(screen)
         out_dir = self.root / "imports"
         out_dir.mkdir(exist_ok=True)
         screen_id = screen.get("meta", {}).get("id", "screen")
         out_path = out_dir / f"{screen_id}.screen.json"
         out_path.write_text(json.dumps(screen, indent=2, ensure_ascii=False),
                             encoding="utf-8")
-        result = self.validate_screen(screen)
         result["path"] = str(out_path)
         return result
 

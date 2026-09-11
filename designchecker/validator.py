@@ -269,6 +269,10 @@ def check_token_resolvable(node, rule, ctx):
 
 def check_no_hardcoded_value(node, rule, ctx):
     findings = []
+    # sfondi approssimati da gradiente/immagine (meta.visual_bg, D30):
+    # non sono una decisione "hard-coded", sono una lettura del canvas
+    if (node.get("meta", {}) or {}).get("visual_bg"):
+        return None
     for key, value in (node.get("style", {}) or {}).items():
         if isinstance(value, str) and HEX_RE.match(value.strip()):
             findings.append(make_finding(rule, node.get("id", "?"),
@@ -448,7 +452,13 @@ SCREEN_SCOPE_CHECKS = {"single_primary_action", "max_instances",
 
 def validate(screen: dict, rules: list[dict], tokens: TokenStore,
              catalog: dict, platform: str = "both") -> list[Finding]:
-    """Esegue tutte le regole applicabili sullo screen JSON."""
+    """Esegue tutte le regole applicabili sullo screen JSON.
+
+    Eccezioni consapevoli (D30): un nodo puo' dichiarare
+    meta.exceptions: [{rule: "<id o prefisso>", reason: "..."}] —
+    i finding coperti vengono rimossi e conteggiati in
+    screen["meta"]["exceptions_applied"] (visibile nel report).
+    """
     ctx = Context(tokens=tokens, catalog=catalog, platform=platform, screen=screen)
     # costruisce la mappa dei genitori una sola volta
     list(walk(screen.get("root", {}), None, ctx))
@@ -475,4 +485,28 @@ def validate(screen: dict, rules: list[dict], tokens: TokenStore,
                 result = check_fn(node, rule, ctx)
                 if result:
                     findings.extend(result)
-    return findings
+
+    # ---- eccezioni giustificate (D30)
+    by_id: dict[str, dict] = {}
+    for node, _p in walk(screen.get("root", {}), None, ctx):
+        by_id.setdefault(node.get("id", ""), node)
+    kept: list[Finding] = []
+    applied: list[str] = []
+    for f in findings:
+        # id composti ("main-tabs/profile") -> primo segmento; "(schermata)" -> root
+        node = by_id.get(f.node_id) or by_id.get(f.node_id.split("/")[0])
+        if node is None and f.node_id == "(schermata)":
+            node = screen.get("root", {})
+        if node is None:
+            node = {}
+        exceptions = (node.get("meta", {}) or {}).get("exceptions", []) or []
+        match = next((e for e in exceptions
+                      if e.get("reason", "").strip()
+                      and f.rule_id.startswith(e.get("rule", ""))), None)
+        if match:
+            applied.append(f"{f.rule_id} su '{f.node_id}' — {match['reason']}")
+        else:
+            kept.append(f)
+    if applied:
+        screen.setdefault("meta", {})["exceptions_applied"] = applied
+    return kept

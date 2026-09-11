@@ -47,15 +47,44 @@ def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
+def _rgb_hex(c: dict) -> str:
+    return "#{:02X}{:02X}{:02X}".format(
+        round(c.get("r", 0) * 255),
+        round(c.get("g", 0) * 255),
+        round(c.get("b", 0) * 255))
+
+
 def _solid_hex(fills) -> str | None:
     for fill in fills or []:
         if fill.get("type") == "SOLID" and fill.get("visible", True):
-            c = fill["color"]
-            return "#{:02X}{:02X}{:02X}".format(
-                round(c.get("r", 0) * 255),
-                round(c.get("g", 0) * 255),
-                round(c.get("b", 0) * 255))
+            return _rgb_hex(fill["color"])
     return None
+
+
+def _fill_hex(fills) -> tuple[str | None, str | None]:
+    """Sfondo di un nodo: (hex, visual_bg).
+
+    Gradiente -> media pesata (alpha) degli stop, con visual_bg='gradient':
+    approssimazione dichiarata per i controlli di contrasto (D30).
+    Immagine -> (None, 'image'): nessun colore estraibile.
+    """
+    for fill in fills or []:
+        if not fill.get("visible", True):
+            continue
+        ftype = fill.get("type", "")
+        if ftype == "SOLID":
+            return _rgb_hex(fill["color"]), None
+        if ftype.startswith("GRADIENT"):
+            stops = fill.get("gradientStops", []) or []
+            if stops:
+                total_a = sum(s["color"].get("a", 1) for s in stops) or 1
+                avg = {ch: sum(s["color"].get(ch, 0) * s["color"].get("a", 1)
+                               for s in stops) / total_a
+                       for ch in ("r", "g", "b")}
+                return _rgb_hex(avg), "gradient"
+        if ftype == "IMAGE":
+            return None, "image"
+    return None, None
 
 
 def _has_image_fill(fills) -> bool:
@@ -219,10 +248,12 @@ class FigmaImporter:
             out["layout"]["safe_area"] = True
             out["layout"]["sizing"] = {"w": "fill", "h": "fill"}
 
-        # colore di sfondo / superficie
-        bg = _solid_hex(node.get("fills"))
+        # colore di sfondo / superficie (gradienti -> media, dichiarata in meta)
+        bg, visual_bg = _fill_hex(node.get("fills"))
         if bg and "container" in traits or (bg and top_level):
             out["style"]["background"] = self._token_or_value(bg)
+        if visual_bg:
+            out["meta"]["visual_bg"] = visual_bg
 
         # touch target: dimensioni REALI dal canvas
         if "interactive" in traits and bounds:

@@ -123,7 +123,8 @@ def main(argv: list[str] | None = None) -> None:
         catalog = load_catalog(catalog_path)
         findings = validate(screen, rules, tokens, catalog, platform=args.platform)
         print_report(findings, screen.get("meta", {}).get("name", str(args.screen)),
-                     len([r for r in rules if r.get("phase", "validate") == "validate"]))
+                     len([r for r in rules if r.get("phase", "validate") == "validate"]),
+                     exceptions=screen.get("meta", {}).get("exceptions_applied"))
         sys.exit(1 if any(f.severity == "error" for f in findings) else 0)
 
     if args.command == "generate":
@@ -343,7 +344,8 @@ def _code_import(args, root: Path) -> None:
     rules = load_rules(root / "rules")
     findings = validate(screen, rules, tokens, catalog, platform=args.platform)
     print_report(findings, screen["meta"]["name"],
-                 len([r for r in rules if r.get("phase", "validate") == "validate"]))
+                 len([r for r in rules if r.get("phase", "validate") == "validate"]),
+                 exceptions=screen.get("meta", {}).get("exceptions_applied"))
     has_errors = any(f.severity == "error" for f in findings)
     _offer_codegen(root, screen, tokens, catalog, has_errors)
     sys.exit(1 if has_errors else 0)
@@ -426,7 +428,8 @@ def _figma_commands(args, root: Path) -> None:
         rules = load_rules(root / "rules")
         findings = validate(screen, rules, tokens, catalog, platform=args.platform)
         print_report(findings, screen["meta"]["name"],
-                     len([r for r in rules if r.get("phase", "validate") == "validate"]))
+                     len([r for r in rules if r.get("phase", "validate") == "validate"]),
+                     exceptions=screen.get("meta", {}).get("exceptions_applied"))
         has_errors = any(f.severity == "error" for f in findings)
         _offer_codegen(root, screen, tokens, catalog, has_errors)
         sys.exit(1 if has_errors else 0)

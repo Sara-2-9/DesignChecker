@@ -101,3 +101,80 @@ class TestBridgeHTTP(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestEccezioniEGradienti(unittest.TestCase):
+    """D30: eccezioni giustificate + sfondi da gradiente."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bridge = Bridge(ROOT)
+
+    def test_eccezione_giustificata_rimuove_finding(self):
+        import copy
+        from designchecker.validator import validate
+        from designchecker.loader import load_rules
+        screen = load_screen(ROOT / "examples" / "imported-home.screen.json")
+        rules = load_rules(ROOT / "rules")
+        base = validate(copy.deepcopy(screen), rules, self.bridge.tokens, self.bridge.catalog)
+        self.assertTrue(base)
+        # copro TUTTE le regole trovate con eccezioni motivate sul root
+        mod = copy.deepcopy(screen)
+        rule_ids = sorted({f.rule_id.split(".")[0] for f in base})
+        # eccezione a livello di prefisso regola sul nodo radice e sui figli
+        def add_exc(node):
+            node.setdefault("meta", {})["exceptions"] = [
+                {"rule": r, "reason": "test"} for r in rule_ids]
+            for c in node.get("children", []) or []:
+                add_exc(c)
+        add_exc(mod["root"])
+        after = validate(mod, rules, self.bridge.tokens, self.bridge.catalog)
+        self.assertEqual(after, [])
+        self.assertTrue(mod["meta"]["exceptions_applied"])
+
+    def test_eccezione_senza_motivo_non_vale(self):
+        import copy
+        from designchecker.validator import validate
+        from designchecker.loader import load_rules
+        screen = load_screen(ROOT / "examples" / "imported-home.screen.json")
+        rules = load_rules(ROOT / "rules")
+        mod = copy.deepcopy(screen)
+
+        def add_exc(node):
+            node.setdefault("meta", {})["exceptions"] = [{"rule": "wcag", "reason": ""}]
+            for c in node.get("children", []) or []:
+                add_exc(c)
+        add_exc(mod["root"])
+        base = validate(copy.deepcopy(screen), rules, self.bridge.tokens, self.bridge.catalog)
+        after = validate(mod, rules, self.bridge.tokens, self.bridge.catalog)
+        self.assertEqual(len(after), len(base))  # senza reason: nessuna eccezione
+
+    def test_gradiente_media_e_visual_bg(self):
+        from designchecker.importer_figma import _fill_hex
+        fills = [{"type": "GRADIENT_LINEAR", "visible": True, "gradientStops": [
+            {"color": {"r": 1, "g": 1, "b": 1, "a": 1}},
+            {"color": {"r": 0, "g": 0, "b": 0, "a": 1}}]}]
+        hex_value, visual = _fill_hex(fills)
+        self.assertEqual(hex_value, "#808080")
+        self.assertEqual(visual, "gradient")
+        img, visual_img = _fill_hex([{"type": "IMAGE", "visible": True}])
+        self.assertIsNone(img)
+        self.assertEqual(visual_img, "image")
+
+    def test_visual_bg_esenta_hardcoded(self):
+        """Un background approssimato da gradiente non e' un hex hard-coded."""
+        import copy
+        from designchecker.validator import validate
+        from designchecker.loader import load_rules
+        rules = load_rules(ROOT / "rules")
+        screen = {
+            "schema_version": "0.1.0",
+            "meta": {"id": "t", "name": "t"},
+            "root": {"id": "t", "type": "Screen",
+                     "layout": {"safe_area": True},
+                     "style": {"background": "#808080"},
+                     "meta": {"visual_bg": "gradient"},
+                     "children": []},
+        }
+        findings = validate(screen, rules, self.bridge.tokens, self.bridge.catalog)
+        self.assertNotIn("ds.no-hardcoded-value", {f.rule_id for f in findings})

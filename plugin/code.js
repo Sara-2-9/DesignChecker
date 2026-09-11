@@ -49,16 +49,41 @@ function kebab(name) {
     .replace(/^-|-$/g, '');
 }
 
+function rgbHex(c) {
+  const to = (v) => Math.round(v * 255).toString(16).padStart(2, '0').toUpperCase();
+  return '#' + to(c.r) + to(c.g) + to(c.b);
+}
+
 function solidHex(fills) {
   if (!Array.isArray(fills)) return null;
   for (const fill of fills) {
-    if (fill.type === 'SOLID' && fill.visible !== false) {
-      const c = fill.color;
-      const to = (v) => Math.round(v * 255).toString(16).padStart(2, '0').toUpperCase();
-      return '#' + to(c.r) + to(c.g) + to(c.b);
-    }
+    if (fill.type === 'SOLID' && fill.visible !== false) return rgbHex(fill.color);
   }
   return null;
+}
+
+// Sfondo nodo: [hex, visualBg]. Gradiente -> media pesata degli stop
+// (approssimazione dichiarata in meta.visual_bg, D30); immagine -> [null, 'image'].
+function fillHex(fills) {
+  if (!Array.isArray(fills)) return [null, null];
+  for (const fill of fills) {
+    if (fill.visible === false) continue;
+    if (fill.type === 'SOLID') return [rgbHex(fill.color), null];
+    if (fill.type && fill.type.startsWith('GRADIENT')) {
+      const stops = fill.gradientStops || [];
+      if (stops.length) {
+        const tot = stops.reduce((s, st) => s + (st.color.a == null ? 1 : st.color.a), 0) || 1;
+        const avg = { r: 0, g: 0, b: 0 };
+        for (const st of stops) {
+          const a = st.color.a == null ? 1 : st.color.a;
+          avg.r += st.color.r * a; avg.g += st.color.g * a; avg.b += st.color.b * a;
+        }
+        return [rgbHex({ r: avg.r / tot, g: avg.g / tot, b: avg.b / tot }), 'gradient'];
+      }
+    }
+    if (fill.type === 'IMAGE') return [null, 'image'];
+  }
+  return [null, null];
 }
 
 function tokenOrHex(hex) {
@@ -210,10 +235,11 @@ function convertNode(node, topLevel) {
     out.layout.sizing = { w: 'fill', h: 'fill' };
   }
 
-  const bg = solidHex(node.fills);
+  const [bg, visualBg] = fillHex(node.fills);
   if (bg && (traits.includes('container') || traits.includes('surface') || topLevel)) {
     out.style.background = tokenOrHex(bg);
   }
+  if (visualBg) out.meta.visual_bg = visualBg;
 
   // touch target: misure REALI dal canvas
   if (traits.includes('interactive') && bounds.width) {

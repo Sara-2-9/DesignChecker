@@ -13,7 +13,8 @@ def _c(text: str, color: str) -> str:
     return f"{color}{text}{_RESET}" if _USE_COLOR else text
 
 
-def print_report(findings: list[Finding], screen_name: str, rules_count: int) -> None:
+def print_report(findings: list[Finding], screen_name: str, rules_count: int,
+                 exceptions: list[str] | None = None) -> None:
     errors = [f for f in findings if f.severity == "error"]
     warnings = [f for f in findings if f.severity == "warning"]
 
@@ -21,6 +22,12 @@ def print_report(findings: list[Finding], screen_name: str, rules_count: int) ->
     print(_c(f"DesignChecker — report di validazione", _DIM))
     print(f"Schermata: {screen_name}   Regole caricate: {rules_count}")
     print("─" * 64)
+
+    if exceptions:
+        print(_c("◦ Eccezioni giustificate applicate (D30):", _DIM))
+        for e in exceptions:
+            print(_c(f"  - {e}", _DIM))
+        print()
 
     if not findings:
         print(_c("✓ Nessuna violazione: la schermata rispetta tutte le regole caricate.", _GREEN))
