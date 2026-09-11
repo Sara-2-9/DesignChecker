@@ -27,6 +27,21 @@ ALIASES = {
     "listitem": "ListRow", "image": "Image", "icon": "Icon",
 }
 
+# chrome di dispositivo nei mockup (Status bar, Dynamic Island…):
+# non e' contenuto dell'app -> mai esportato/validato
+DEVICE_CHROME = re.compile(r"^(status[\s-]?bar|dynamic[\s-]?island|home[\s-]?indicator|notch)",
+                           re.IGNORECASE)
+
+# glifi SF Symbols / private use area: non sono label leggibili
+PUA = re.compile("[\\uE000-\\uF8FF\\U000F0000-\\U000FFFFD]")
+
+
+def readable_label(raw: str | None, fallback: str | None) -> str:
+    text = (raw or "").strip()
+    if not text or PUA.search(text):
+        return (fallback or "tab").strip()
+    return text
+
 
 def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
@@ -91,7 +106,8 @@ class FigmaImporter:
             tnorm = _norm(type_name)
             if norm == tnorm:
                 return type_name, 0.95
-            if norm.startswith(tnorm):
+            # prefisso: MAI per Screen ("screenshot…" non e' una schermata)
+            if type_name != "Screen" and norm.startswith(tnorm):
                 return type_name, 0.85
         for alias, type_name in ALIASES.items():
             if norm.startswith(alias):
@@ -130,6 +146,10 @@ class FigmaImporter:
         ntype = node.get("type")
         name = node.get("name", "node")
         bounds = node.get("absoluteBoundingBox") or {}
+
+        # chrome di dispositivo (Status bar, Dynamic Island…): mai validato
+        if not top_level and DEVICE_CHROME.match(name):
+            return None
 
         if ntype == "VECTOR":
             return {"id": kebab(name), "type": "Icon",
@@ -217,7 +237,7 @@ class FigmaImporter:
         if dc_type == "TabBar":
             tabs = []
             for child in node.get("children", []) or []:
-                tab_label = self._first_text(child) or child.get("name", "tab")
+                tab_label = readable_label(self._first_text(child), child.get("name"))
                 tab_name = tab_label.split("/")[-1].strip()
                 tabs.append({"id": kebab(tab_name), "icon": kebab(tab_name),
                              "label": tab_name, "route": "/" + kebab(tab_name)})

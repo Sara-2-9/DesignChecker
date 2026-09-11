@@ -91,5 +91,41 @@ class TestFigmaImporter(unittest.TestCase):
         self.assertIsNone(importer.convert_screen(self.document, "Inesistente"))
 
 
+class TestExportEdgeCases(unittest.TestCase):
+    """Bug trovati dal primo export reale via plugin (iPhone16Pro-1)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        cls.catalog = load_catalog(ROOT / "components.catalog.yaml")
+        cls.importer = FigmaImporter(cls.tokens, cls.catalog)
+
+    def test_screenshot_non_e_uno_screen(self):
+        """'Screenshot 2026-08-22…' matchava Screen per prefisso: e' un'immagine."""
+        node = {"type": "RECTANGLE", "name": "Screenshot 2026-08-22 at 23.59.27 2",
+                "fills": [{"type": "IMAGE", "visible": True}], "children": []}
+        out = self.importer.convert_node(node)
+        self.assertEqual(out["type"], "Image")
+
+    def test_device_chrome_saltato(self):
+        """Status bar / Dynamic Island: chrome del mockup, mai esportati."""
+        for name in ("Status bar - iPhone", "Dynamic Island", "Home Indicator"):
+            node = {"type": "INSTANCE", "name": name, "children": []}
+            self.assertIsNone(self.importer.convert_node(node), msg=name)
+
+    def test_tab_con_glifo_sf_symbol_usa_nome_layer(self):
+        """Le label di tab con glifi SF Symbols (PUA) cadono sul nome del layer."""
+        tabbar = {"type": "INSTANCE", "name": "Tab Bar - iPhone", "children": [
+            {"type": "FRAME", "name": "Home", "children": [
+                {"type": "TEXT", "characters": "", "style": {"fontSize": 10}}]},
+            {"type": "FRAME", "name": "Apps", "children": []},
+        ]}
+        out = self.importer.convert_node(tabbar)
+        self.assertEqual(out["type"], "TabBar")
+        labels = [t["label"] for t in out["props"]["tabs"]]
+        self.assertEqual(labels, ["Home", "Apps"])
+        self.assertTrue(all(t["id"] for t in out["props"]["tabs"]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -97,10 +97,23 @@ function catalogMatch(name) {
     : Object.keys(FALLBACK_TRAITS);
   for (const t of types) if (n === norm(t)) return [t, 0.95];
   if (ALIASES[n]) return [ALIASES[n], 0.9];
-  for (const t of types) if (n.startsWith(norm(t))) return [t, 0.85];
+  // prefisso: MAI per Screen ("screenshot…" non e' una schermata)
+  for (const t of types) if (t !== 'Screen' && n.startsWith(norm(t))) return [t, 0.85];
   for (const a of Object.keys(ALIASES)) if (n.startsWith(a)) return [ALIASES[a], 0.75];
   for (const a of Object.keys(ALIASES)) if (n.endsWith(a)) return [ALIASES[a], 0.7];
   return [null, 0];
+}
+
+// chrome di dispositivo nei mockup: NON e' contenuto dell'app, va saltato
+const DEVICE_CHROME = /^(status[\s-]?bar|dynamic[\s-]?island|home[\s-]?indicator|notch)/i;
+
+// glifi SF Symbols / private use area: non sono label leggibili
+const PUA = /[\uE000-\uF8FF\u{F0000}-\u{FFFFD}]/u;
+
+function readableLabel(raw, fallback) {
+  const text = (raw || '').trim();
+  if (!text || PUA.test(text)) return (fallback || 'tab').trim();
+  return text;
 }
 
 function firstText(node) {
@@ -130,6 +143,9 @@ let exportMap = {};  // dc id -> figma node id (per le annotazioni)
 function convertNode(node, topLevel) {
   const name = node.name || 'node';
   const bounds = node.absoluteBoundingBox || {};
+
+  // chrome di dispositivo (Status bar, Dynamic Island…): mai validato
+  if (!topLevel && DEVICE_CHROME.test(name)) return null;
 
   if (node.type === 'VECTOR') {
     return {
@@ -210,7 +226,7 @@ function convertNode(node, topLevel) {
   }
   if (dcType === 'TabBar' && 'children' in node) {
     out.props.tabs = node.children.map((child) => {
-      const label = (firstText(child) || child.name || 'tab').split('/').pop().trim();
+      const label = readableLabel(firstText(child), child.name).split('/').pop().trim();
       return { id: kebab(label), icon: kebab(label), label: label, route: '/' + kebab(label) };
     });
     out.semantics = { navigation_role: 'root_tabs' };
