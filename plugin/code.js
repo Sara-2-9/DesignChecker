@@ -493,6 +493,65 @@ async function renderNode(node, parent, isRoot) {
     return;
   }
 
+  if (type === 'TabBar') {
+    const layout = node.layout || {};
+    const frame = newFrame(type, node.id);
+    const bg = hexToFigmaColor(tokenValue((node.style || {}).background)) ||
+      hexToFigmaColor(tokenValue('{color.surface}')) || { r: 1, g: 1, b: 1 };
+    frame.fills = [{ type: 'SOLID', color: bg }];
+    frame.layoutMode = 'HORIZONTAL';
+    frame.primaryAxisSizingMode = 'FIXED';
+    frame.counterAxisSizingMode = 'FIXED';
+    frame.primaryAxisAlignItems = 'CENTER';
+    frame.counterAxisAlignItems = 'CENTER';
+    frame.itemSpacing = num(tokenValue(layout.gap), 8);
+    const padH = num(tokenValue(((layout.padding) || {}).horizontal), 24);
+    frame.paddingLeft = frame.paddingRight = padH;
+    frame.paddingTop = 8;
+    frame.paddingBottom = 20; // spazio home indicator
+    frame.strokes = [{ type: 'SOLID', color: { r: 0.85, g: 0.85, b: 0.87 } }];
+    frame.strokeWeight = 1;
+    frame.strokeAlign = 'INSIDE';
+    frame.resize(340, num(props.min_height, 80));
+    parent.appendChild(frame);
+    // fedelta': se l'istanza TabBar sorgente esiste ancora, clona i suoi tab
+    // (icone vere); altrimenti celle ricostruite con icona placeholder
+    const srcBar = (node.meta || {}).figma_node_id ? figma.getNodeById((node.meta || {}).figma_node_id) : null;
+    const srcTabs = srcBar && 'children' in srcBar ? srcBar.children.filter((c) => c.visible !== false) : [];
+    if (srcTabs.length > 0 && srcTabs.length === (props.tabs || []).length) {
+      for (const st of srcTabs) {
+        const copy = st.clone();
+        frame.appendChild(copy);
+        try { copy.layoutGrow = 1; } catch (e) { /* istanza rigida: ok */ }
+      }
+      return;
+    }
+    for (const tab of props.tabs || []) {
+      const cell = figma.createFrame();
+      cell.name = 'Tab: ' + (tab.label || tab.id || 'tab');
+      cell.fills = [];
+      cell.layoutMode = 'VERTICAL';
+      cell.primaryAxisAlignItems = 'CENTER';
+      cell.counterAxisAlignItems = 'CENTER';
+      cell.itemSpacing = 4;
+      cell.layoutGrow = 1; // i tab si spartiscono la larghezza
+      frame.appendChild(cell);
+      const icon = figma.createFrame();
+      icon.name = 'icon: ' + (tab.icon || '');
+      icon.resize(24, 24);
+      icon.cornerRadius = 6;
+      icon.fills = [{ type: 'SOLID', color: { r: 0.55, g: 0.57, b: 0.62 } }];
+      cell.appendChild(icon);
+      const label = figma.createText();
+      label.fontName = { family: 'Inter', style: 'Medium' };
+      label.fontSize = fontSizeFor('caption');
+      label.characters = tab.label || '';
+      label.fills = [{ type: 'SOLID', color: { r: 0.35, g: 0.37, b: 0.42 } }];
+      cell.appendChild(label);
+    }
+    return;
+  }
+
   if (type === 'Image' || type === 'Icon') {
     const frame = newFrame(type, node.id);
     const size = type === 'Icon' ? 24 : 120;
