@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente). 99 test OK. Decisioni D1–D31.
+🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente). 99 test OK. Decisioni D1–D32.
 
 ### Installazione (una volta sola)
 
@@ -100,7 +100,7 @@ designchecker serve          # bridge locale su http://localhost:7357 (lasciarlo
 3. Seleziona un frame-schermata sul canvas → **Plugins → Development → DesignChecker**
 4. Nel pannello: **"Esporta selezione e valida"** → audit con errori/warning + rettangoli rossi/arancio disegnati sul canvas sui nodi che violano le regole
 5. Attiva **"Tempo reale"**: ogni modifica al frame viene ri-validata (debounce ~1s) e le annotazioni si aggiornano da sole
-6. **Scrittura**: inserisci l'id di uno screen importato (es. `home2`) → **Render** → il plugin crea il frame nativo sul canvas dal JSON
+6. **Scrittura**: inserisci l'id di uno screen importato (es. `home2`) → **Render** → il plugin crea il frame nativo sul canvas dal JSON. Con gli export del plugin il render è **fedele**: geometria reale e immagini/icone clonate dall'originale (D32)
 7. **AI** (dopo `designchecker ai`): **"Valuta il design"** per un parere qualitativo, **"Correggi con AI"** per una patch automatica — accettata solo se il validatore conferma il miglioramento, poi renderizzata sul canvas
 ```
 

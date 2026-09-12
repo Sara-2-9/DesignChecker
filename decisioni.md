@@ -173,3 +173,13 @@ Comunicazione: code.js ↔ ui.html via `postMessage`; ui.html ↔ bridge via fet
 3. **`dc fix <screen.json>`**: il modello propone una **JSON Patch RFC 6902**; un applicatore minimale interno (solo add/remove/replace, max 40 op, niente dipendenze) la applica a una copia; il **validatore deterministico decide**: accettata solo se riduce gli errori senza aumentare i warning. Rifiutata → feedback al modello e un secondo tentativo; poi basta, file invariato. Accettata → salvataggio con backup `.bak` e diff delle operazioni stampato.
 4. **Nel plugin**: due bottoni ("Valuta il design", "Correggi con AI") attivi solo se `dc ai` e' configurato (lo dice `/health`); dopo un fix accettato il pannello aggiorna i finding e **renderizza la versione corretta sul canvas**.
 **Motivazione:** il valore dell'AI e' massimo dove il determinismo non arriva (giudizio estetico, proposte di fix); il rischio dell'AI e' massimo dove il determinismo basta (applicare modifiche). Il gatekeeper risolve la tensione: l'LLM propone, la regola dispone.
+
+## D32 — Render fedele: geometria reale + clonazione immagini dal sorgente
+**Contesto:** il primo render JSON→canvas era uno "scheletro a blocchi" (auto-layout con dimensioni di default, immagini come placeholder grigi): utile per la struttura, non per valutare il design.
+**Decisione:**
+1. **Export**: ogni nodo porta `layout.frame: {x, y, w, h}` (coordinate relative al frame radice, da `absoluteBoundingBox`) e `meta.figma_node_id`. Il validatore ignora entrambi (verificato: findings invariati).
+2. **Render**: se il JSON ha geometria, il plugin usa **posizionamento assoluto** (niente auto-layout, `clipsContent`); altrimenti resta il render strutturale come fallback (JSON scritti a mano, codegen).
+3. **Immagini e icone**: non ricreabili dal JSON senza portarsi dietro i byte — il renderer **clona il nodo Figma sorgente** via `figma_node_id` (stesso file, stesso documento: copia perfetta, zero dati nel JSON). Se il nodo sorgente non esiste piu', placeholder come prima.
+4. **Container e testi** sono ricostruiti dal JSON (non clonati): cosi' i fix AI (colori, token) sono visibili nel render — clonare tutto renderebbe invisibili le correzioni.
+5. **Guardia anti-perdita** (stessa tornata): `/import` non sovrascrive piu' alla cieca — se il file su disco e' stato modificato fuori dal canale export (es. fix AI), il bridge salva `.preexport.bak` e avvisa il pannello prima di sovrascrivere.
+**Motivazione:** il render serve a valutare il design corretto: deve assomigliare all'originale, ma riflettere le decisioni del sistema (token, fix), non fotocopiare gli errori.

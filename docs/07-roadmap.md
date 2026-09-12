@@ -21,6 +21,8 @@
 - ✅ Plugin: export frame → screen JSON via Plugin API (zero REST, zero rate limit), audit via bridge locale `dck serve`
 - ✅ Annotazioni real-time sul canvas (toggle, debounce 900ms): rettangoli rossi/arancio + regola violata
 - ✅ Scrittura su canvas: render screen JSON → frame nativi (auto-layout, token risolti, dc_id in pluginData)
+- ✅ Render fedele (D32): geometria reale + immagini/icone clonate dal nodo sorgente; fallback strutturale senza geometria
+- ✅ Guardia anti-perdita export/fix (D32): backup .preexport.bak + avviso nel pannello
 - ✅ Integrazione AI nel plugin: bottoni "Valuta il design" (review consultiva) e "Correggi con AI" (patch gated dal validatore → render automatico)
 - ⏳ Interpretazione prompt libero → patch → render automatico (il fix loop copre gia' le violazioni)
 - ⏳ Sync token → Variables Figma (D22)

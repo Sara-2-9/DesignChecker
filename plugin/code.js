@@ -165,6 +165,27 @@ function actionFromReactions(node) {
 // ---------------------------------------------------------------- export
 let exportMap = {};  // dc id -> figma node id (per le annotazioni)
 
+// ---------------------------------------------------------------- export
+// Origine del frame radice per la geometria relativa (render fedele, D32)
+let exportOrigin = null;
+
+function withGeo(out, node, bounds) {
+  // geometria reale relativa al root + id Figma (per clonare immagini/icone
+  // dal nodo sorgente al momento del render, se esiste ancora nel file)
+  if (bounds && bounds.width != null) {
+    out.layout = out.layout || {};
+    out.layout.frame = {
+      x: Math.round(bounds.x - (exportOrigin ? exportOrigin.x : bounds.x)),
+      y: Math.round(bounds.y - (exportOrigin ? exportOrigin.y : bounds.y)),
+      w: Math.round(bounds.width),
+      h: Math.round(bounds.height),
+    };
+  }
+  out.meta = out.meta || {};
+  out.meta.figma_node_id = node.id;
+  return out;
+}
+
 function convertNode(node, topLevel) {
   const name = node.name || 'node';
   const bounds = node.absoluteBoundingBox || {};
@@ -173,12 +194,12 @@ function convertNode(node, topLevel) {
   if (!topLevel && DEVICE_CHROME.test(name)) return null;
 
   if (node.type === 'VECTOR') {
-    return {
+    return withGeo({
       id: kebab(name), type: 'Icon',
       props: { name: norm(name) || 'icon' },
       layout: {}, style: {},
       meta: { source: 'figma-plugin', confidence: 0.9 },
-    };
+    }, node, bounds);
   }
 
   if (node.type === 'TEXT') {
@@ -191,7 +212,7 @@ function convertNode(node, topLevel) {
     };
     const color = solidHex(node.fills);
     if (color) out.style.color = tokenOrHex(color);
-    return out;
+    return withGeo(out, node, bounds);
   }
 
   if (!['FRAME', 'INSTANCE', 'GROUP', 'RECTANGLE', 'COMPONENT', 'COMPONENT_SET'].includes(node.type)) {
@@ -221,6 +242,7 @@ function convertNode(node, topLevel) {
     meta: { source: 'figma-plugin', confidence: confidence, figma_name: name, figma_type: node.type },
   };
   exportMap[out.id] = node.id;
+  withGeo(out, node, bounds);
 
   // layout da auto-layout
   if (node.layoutMode === 'VERTICAL') out.layout.direction = 'column';
@@ -276,7 +298,10 @@ function convertNode(node, topLevel) {
 
 function exportFrame(node) {
   exportMap = {};
+  const b = node.absoluteBoundingBox || { x: 0, y: 0 };
+  exportOrigin = { x: b.x, y: b.y };
   const root = convertNode(node, true);
+  exportOrigin = null;
   return {
     schema_version: '0.1.0',
     meta: {
@@ -509,18 +534,115 @@ async function renderNode(node, parent, isRoot) {
   }
 }
 
+// ------------------------------------------------------ render fedele (D32)
+// Se il JSON porta la geometria reale (layout.frame, presente negli export
+// plugin da D32), il render usa posizionamento assoluto invece di auto-layout
+// e clona immagini/icone dal nodo Figma sorgente (stesso file, stesso id).
+
+function hasGeometry(screen) {
+  const f = screen && screen.root && screen.root.layout && screen.root.layout.frame;
+  return !!(f && f.w > 0 && f.h > 0);
+}
+
+async function renderNodeFaithful(node, parent) {
+  const f = (node.layout || {}).frame;
+  const style = node.style || {};
+  const props = node.props || {};
+  const meta = node.meta || {};
+
+  if (node.type === 'Text') {
+    const t = figma.createText();
+    t.fontName = { family: 'Inter', style: props.variant === 'title' || props.variant === 'heading' ? 'Bold' : 'Regular' };
+    t.fontSize = fontSizeFor(props.variant);
+    t.characters = props.content || '';
+    const color = hexToFigmaColor(tokenValue(style.color));
+    if (color) t.fills = [{ type: 'SOLID', color: color }];
+    t.name = 'Text: ' + (node.id || '');
+    t.setPluginData('dc_id', node.id || '');
+    parent.appendChild(t);
+    if (f) { t.x = f.x; t.y = f.y; }
+    return;
+  }
+
+  // Immagini e icone: cloniamo il nodo sorgente (massima fedelta', zero byte
+  // nel JSON). Funziona solo se il frame originale esiste ancora nel file.
+  if ((node.type === 'Image' || node.type === 'Icon') && meta.figma_node_id) {
+    const src = figma.getNodeById(meta.figma_node_id);
+    if (src) {
+      const copy = src.clone();
+      parent.appendChild(copy);
+      copy.name = node.type + ': ' + (node.id || '');
+      try { copy.setPluginData('dc_id', node.id || ''); } catch (e) { /* read-only */ }
+      if (f) {
+        copy.x = f.x; copy.y = f.y;
+        try { copy.resize(Math.max(f.w, 1), Math.max(f.h, 1)); } catch (e) { /* vector/locked */ }
+      }
+      return;
+    }
+    // sorgente non piu' disponibile: placeholder
+  }
+
+  // Tipi complessi senza figli nel JSON (Button, TabBar, TextField…):
+  // riusa il builder auto-layout, poi riposiziona/ridimensiona in assoluto.
+  const kids = node.children || [];
+  if (!kids.length && node.type !== 'Screen' && node.type !== 'Stack' &&
+      node.type !== 'Card' && node.type !== 'List') {
+    await renderNode(node, parent, false);
+    const created = parent.children[parent.children.length - 1];
+    if (created && f) {
+      created.x = f.x; created.y = f.y;
+      if (created.type !== 'TEXT') {
+        try { created.resize(Math.max(f.w, 1), Math.max(f.h, 1)); } catch (e) { /* ok */ }
+      }
+    }
+    return;
+  }
+
+  // Contenitori: frame assoluto, niente auto-layout
+  const frame = newFrame(node.type, node.id);
+  frame.layoutMode = 'NONE';
+  const bg = hexToFigmaColor(tokenValue(style.background));
+  frame.fills = bg ? [{ type: 'SOLID', color: bg }] : [];
+  if (style.radius != null) frame.cornerRadius = num(tokenValue(style.radius), 0);
+  if (f) frame.resize(Math.max(f.w, 1), Math.max(f.h, 1));
+  frame.clipsContent = true;
+  parent.appendChild(frame);
+  if (f) { frame.x = f.x; frame.y = f.y; }
+  for (const child of kids) {
+    await renderNodeFaithful(child, frame);
+  }
+}
+
 async function renderScreen(screen) {
   await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
   await figma.loadFontAsync({ family: 'Inter', style: 'Medium' });
   await figma.loadFontAsync({ family: 'Inter', style: 'Bold' });
-  const holder = figma.createFrame();
-  holder.name = 'holder';
-  figma.currentPage.appendChild(holder);
-  await renderNode(screen.root, holder, true);
-  const frame = holder.children[0] || holder;
-  if (frame !== holder) {
-    figma.currentPage.appendChild(frame); // sgancia dal holder
-    holder.remove();
+
+  let frame;
+  if (hasGeometry(screen)) {
+    // modalita' fedele: root con geometria reale, figli in assoluto
+    const rf = screen.root.layout.frame;
+    const root = newFrame(screen.root.type || 'Screen', screen.root.id);
+    root.layoutMode = 'NONE';
+    const bg = hexToFigmaColor(tokenValue((screen.root.style || {}).background));
+    root.fills = bg ? [{ type: 'SOLID', color: bg }] : [];
+    root.resize(Math.max(rf.w, 1), Math.max(rf.h, 1));
+    root.clipsContent = true;
+    figma.currentPage.appendChild(root);
+    for (const child of screen.root.children || []) {
+      await renderNodeFaithful(child, root);
+    }
+    frame = root;
+  } else {
+    const holder = figma.createFrame();
+    holder.name = 'holder';
+    figma.currentPage.appendChild(holder);
+    await renderNode(screen.root, holder, true);
+    frame = holder.children[0] || holder;
+    if (frame !== holder) {
+      figma.currentPage.appendChild(frame); // sgancia dal holder
+      holder.remove();
+    }
   }
   const center = figma.viewport.center;
   frame.x = Math.round(center.x - frame.width / 2);
