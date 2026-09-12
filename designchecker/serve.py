@@ -104,7 +104,8 @@ class Bridge:
             return _ai.chat(p, model, messages, config)
 
         try:
-            result = patcher.fix_loop(screen, findings, validate_fn, chat_fn)
+            result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
+                                      token_paths=list(self.tokens.flat))
         except Exception as e:
             return {"error": f"Il provider non risponde: {e}"}
         if result["applied"]:

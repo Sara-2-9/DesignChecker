@@ -141,8 +141,10 @@ def _nodes_index(screen: dict) -> dict:
     return idx
 
 
-def build_fix_prompt(screen: dict, findings: list) -> list:
-    """Messaggi per la patch: schema minimo, findings, nodi coinvolti."""
+def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = None) -> list:
+    """Messaggi per la patch: schema minimo, findings, nodi coinvolti.
+    token_paths: i path dei token REALMENTE disponibili (TokenStore.flat) —
+    senza, il modello indovinerebbe nomi inesistenti."""
     idx = _nodes_index(screen)
     involved = {}
     for f in findings:
@@ -157,22 +159,26 @@ def build_fix_prompt(screen: dict, findings: list) -> list:
     system = (
         "Sei un motore di correzione per DesignChecker. Lo screen JSON v0.1 ha "
         "questa forma: {schema_version, meta, root}. 'root' e' il nodo schermata; "
-        "ogni nodo: {id, type, text?, layout?, style?, traits?, children?}. "
-        "I riferimenti ai token sono stringhe 'token:<nome>' "
-        "(es. 'token:color.brand.primary').\n"
+        "ogni nodo: {id, type, text?, layout?, style?, traits?, children?}.\n"
+        "I riferimenti ai token usano la sintassi con graffe: \"{path}\" "
+        "(es. \"{color.brand.primary}\", \"{spacing.4}\"). Un riferimento e' "
+        "valido SOLO se il path compare nella lista TOKEN DISPONIBILI.\n"
         "Ricevi una lista di violazioni e i nodi coinvolti. Rispondi SOLO con una "
         "JSON Patch RFC 6902 (array di {op,path,value}; op: add|remove|replace). "
         "I path puntano allo screen JSON completo che ricevi "
         "(es. /root/children/0/style/color). Regole:\n"
         "- Correggi SOLO le violazioni elencate, non riprogettare.\n"
         "- Non cambiare gli id dei nodi, non rimuovere nodi interi.\n"
-        "- Colori e spaziature hardcoded vanno sostituiti con i token esistenti.\n"
+        "- Per colori/spaziature usa SOLO token dalla lista TOKEN DISPONIBILI; "
+        "se nessun token e' adatto, usa un valore concreto leggibile "
+        "(es. hex) invece di inventare un riferimento.\n"
         "- Niente testo fuori dal JSON, niente commenti."
     )
     user = (
         f"VIOLAZIONI:\n{flist}\n\n"
+        f"TOKEN DISPONIBILI (unici path validi per i riferimenti {{...}}):\n"
+        f"{json.dumps(token_paths or [], ensure_ascii=False)}\n\n"
         f"NODI COINVOLTI:\n{json.dumps(involved, ensure_ascii=False, indent=1)}\n\n"
-        f"TOKEN DISPONIBILI:\n{json.dumps(screen.get('tokens', {}), ensure_ascii=False)}\n\n"
         f"SCREEN JSON COMPLETO:\n{json.dumps(screen, ensure_ascii=False)}"
     )
     return [{"role": "system", "content": system},
@@ -206,7 +212,7 @@ def build_review_prompt(screen: dict, findings: list) -> list:
 # ── Fix loop con validatore come gatekeeper ──────────────────────────
 
 def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
-             max_attempts: int = MAX_ATTEMPTS) -> dict:
+             max_attempts: int = MAX_ATTEMPTS, token_paths: list | None = None) -> dict:
     """Tenta la correzione automatica.
 
     validate_fn(screen_dict) -> (errors: list, warnings: list)
@@ -223,7 +229,7 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
         return {"applied": False, "screen": screen, "ops": [], "log": log,
                 "before": before, "after": before}
 
-    messages = build_fix_prompt(screen, findings)
+    messages = build_fix_prompt(screen, findings, token_paths)
     for attempt in range(1, max_attempts + 1):
         log.append(f"Tentativo {attempt}/{max_attempts}: richiesta patch al modello…")
         try:
@@ -250,12 +256,17 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
         detail = "; ".join(f"{f.rule_id} su '{f.node_id}'" for f in n_errors[:5])
         log.append(f"✗ Patch rifiutata dal validatore "
                    f"({after[0]} errori, {after[1]} warning): {detail}")
+        feedback = (f"Il validatore ha rifiutato la patch: restano {after[0]} "
+                    f"errori ({detail}) e {after[1]} warning (prima: "
+                    f"{before[0]}/{before[1]}). Devi RIDURRE gli errori senza "
+                    "aumentare i warning.")
+        if any("token-resolvable" in f.rule_id for f in n_errors):
+            feedback += (" Per ds.token-resolvable: sostituisci i riferimenti "
+                         "inesistenti usando SOLO i path nella lista TOKEN "
+                         "DISPONIBILI, con la sintassi \"{path}\".")
+        feedback += " Rispondi SOLO con la nuova JSON Patch."
         messages.append({"role": "assistant", "content": raw})
-        messages.append({"role": "user", "content":
-                         f"Il validatore ha rifiutato la patch: restano {after[0]} "
-                         f"errori ({detail}) e {after[1]} warning (prima: "
-                         f"{before[0]}/{before[1]}). Devi RIDURRE gli errori senza "
-                         "aumentare i warning. Rispondi SOLO con la nuova JSON Patch."})
+        messages.append({"role": "user", "content": feedback})
     log.append("Il modello non ha prodotto una patch accettabile. File invariato.")
     return {"applied": False, "screen": screen, "ops": [], "log": log,
             "before": before, "after": before}

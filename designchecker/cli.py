@@ -625,7 +625,8 @@ def _ai_screen_command(args, root: Path, rules) -> None:
         return [f for f in fs if f.severity == "error"], \
                [f for f in fs if f.severity == "warning"]
 
-    result = patcher.fix_loop(screen, findings, validate_fn, chat_fn)
+    result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
+                              token_paths=list(tokens.flat))
     for line in result["log"]:
         print(f"  {line}")
     if result["applied"]:

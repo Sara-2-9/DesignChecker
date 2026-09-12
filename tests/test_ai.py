@@ -87,14 +87,14 @@ class TestFixLoop(unittest.TestCase):
         screen = screen_with_bad_color()
         ops = [{"op": "replace",
                 "path": "/root/children/0/style/color",
-                "value": "token:color.brand.primary"}]
+                "value": "{color.brand.primary}"}]
         result = patcher.fix_loop(screen, [finding()], self._validate_fn(),
                                   lambda msgs: __import__("json").dumps(ops))
         self.assertTrue(result["applied"])
         self.assertEqual(result["before"], (1, 0))
         self.assertEqual(result["after"], (0, 0))
         self.assertEqual(result["screen"]["root"]["children"][0]
-                         ["style"]["color"], "token:color.brand.primary")
+                         ["style"]["color"], "{color.brand.primary}")
 
     def test_patch_che_non_migliora_viene_rifiutata(self):
         screen = screen_with_bad_color()
@@ -112,7 +112,7 @@ class TestFixLoop(unittest.TestCase):
         screen = screen_with_bad_color()
         ops = [{"op": "replace",
                 "path": "/root/children/0/style/color",
-                "value": "token:color.brand.primary"}]
+                "value": "{color.brand.primary}"}]
         import json
         chat = lambda msgs: "Certo! Ecco:\n```json\n" + json.dumps(ops) + "\n```"
         result = patcher.fix_loop(screen, [finding()], self._validate_fn(), chat)
@@ -120,7 +120,7 @@ class TestFixLoop(unittest.TestCase):
 
     def test_niente_da_correggere(self):
         screen = screen_with_bad_color()
-        screen["root"]["children"][0]["style"]["color"] = "token:color.brand.primary"
+        screen["root"]["children"][0]["style"]["color"] = "{color.brand.primary}"
         result = patcher.fix_loop(screen, [], self._validate_fn(),
                                   lambda msgs: "[]")
         self.assertFalse(result["applied"])
@@ -131,7 +131,7 @@ class TestFixLoop(unittest.TestCase):
         import json
         good = json.dumps([{"op": "replace",
                             "path": "/root/children/0/style/color",
-                            "value": "token:color.brand.primary"}])
+                            "value": "{color.brand.primary}"}])
         risposte = iter(["non so cosa dire", good])
         result = patcher.fix_loop(screen, [finding()], self._validate_fn(),
                                   lambda msgs: next(risposte))
@@ -260,7 +260,7 @@ class TestPrompts(unittest.TestCase):
         user = msgs[1]["content"]
         self.assertIn("ds.no-hardcoded-value", user)
         self.assertIn('"title"', user)
-        self.assertIn("token", msgs[0]["content"])
+        self.assertIn("TOKEN DISPONIBILI", msgs[0]["content"])
 
     def test_review_prompt_in_italiano_e_consultivo(self):
         msgs = patcher.build_review_prompt(screen_with_bad_color(), [])
