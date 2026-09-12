@@ -55,11 +55,14 @@ class Codegen:
     # ---------------------------------------------------------- theme.ts
 
     def _theme_tree(self) -> dict:
-        """Token DTCG -> albero con valori risolti (alias compresi)."""
+        """Token DTCG -> albero con valori risolti (alias compresi).
+        Il gruppo 'color' diventa 'colors' per allinearsi a _ts_path."""
         out: dict = {}
         for path in self.tokens.flat:
             value = self.tokens.resolve_path(path)
             parts = path.split(".")
+            if parts[0] == "color":
+                parts[0] = "colors"
             node = out
             for part in parts[:-1]:
                 node = node.setdefault(part, {})

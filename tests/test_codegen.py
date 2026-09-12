@@ -207,3 +207,14 @@ class TestCodegenGeometry(unittest.TestCase):
             self.assertIn("SafeAreaView", tsx)
         finally:
             shutil.rmtree(out, ignore_errors=True)
+
+    def test_theme_usa_chiave_colors(self):
+        # regressione: gli stili referenziano theme.colors.* (via _ts_path),
+        # quindi theme.ts deve esporre "colors", non il gruppo DTCG "color"
+        screen = load_screen(ROOT / "examples" / "home.screen.json")
+        tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        catalog = load_catalog(ROOT / "components.catalog.yaml")
+        ts = Codegen(screen, tokens, catalog).theme_ts()
+        self.assertIn('"colors":', ts)
+        self.assertNotIn('"color":', ts)
+        self.assertIn('"surface-raised": "#FFFFFF"', ts)
