@@ -166,17 +166,17 @@ function actionFromReactions(node) {
 let exportMap = {};  // dc id -> figma node id (per le annotazioni)
 
 // ---------------------------------------------------------------- export
-// Origine del frame radice per la geometria relativa (render fedele, D32)
-let exportOrigin = null;
+// Geometria fedele (D32): layout.frame di ogni nodo e' relativo al GENITORE
+// (non al root) — in render i figli sono posizionati dentro il frame parent.
 
-function withGeo(out, node, bounds) {
-  // geometria reale relativa al root + id Figma (per clonare immagini/icone
-  // dal nodo sorgente al momento del render, se esiste ancora nel file)
+function withGeo(out, node, bounds, parentBox) {
+  // geometria reale relativa al genitore + id Figma (per clonare immagini/
+  // icone dal nodo sorgente al momento del render, se esiste ancora nel file)
   if (bounds && bounds.width != null) {
     out.layout = out.layout || {};
     out.layout.frame = {
-      x: Math.round(bounds.x - (exportOrigin ? exportOrigin.x : bounds.x)),
-      y: Math.round(bounds.y - (exportOrigin ? exportOrigin.y : bounds.y)),
+      x: Math.round(bounds.x - (parentBox ? parentBox.x : bounds.x)),
+      y: Math.round(bounds.y - (parentBox ? parentBox.y : bounds.y)),
       w: Math.round(bounds.width),
       h: Math.round(bounds.height),
     };
@@ -186,7 +186,7 @@ function withGeo(out, node, bounds) {
   return out;
 }
 
-function convertNode(node, topLevel) {
+function convertNode(node, topLevel, parentBox) {
   const name = node.name || 'node';
   const bounds = node.absoluteBoundingBox || {};
 
@@ -199,7 +199,7 @@ function convertNode(node, topLevel) {
       props: { name: norm(name) || 'icon' },
       layout: {}, style: {},
       meta: { source: 'figma-plugin', confidence: 0.9 },
-    }, node, bounds);
+    }, node, bounds, parentBox);
   }
 
   if (node.type === 'TEXT') {
@@ -212,7 +212,7 @@ function convertNode(node, topLevel) {
     };
     const color = solidHex(node.fills);
     if (color) out.style.color = tokenOrHex(color);
-    return withGeo(out, node, bounds);
+    return withGeo(out, node, bounds, parentBox);
   }
 
   if (!['FRAME', 'INSTANCE', 'GROUP', 'RECTANGLE', 'COMPONENT', 'COMPONENT_SET'].includes(node.type)) {
@@ -242,7 +242,7 @@ function convertNode(node, topLevel) {
     meta: { source: 'figma-plugin', confidence: confidence, figma_name: name, figma_type: node.type },
   };
   exportMap[out.id] = node.id;
-  withGeo(out, node, bounds);
+  withGeo(out, node, bounds, parentBox);
 
   // layout da auto-layout
   if (node.layoutMode === 'VERTICAL') out.layout.direction = 'column';
@@ -288,7 +288,7 @@ function convertNode(node, topLevel) {
   }
 
   if ('children' in node) {
-    const children = node.children.map((c) => convertNode(c, false)).filter(Boolean);
+    const children = node.children.map((c) => convertNode(c, false, bounds)).filter(Boolean);
     if (children.length && ['Screen', 'Stack', 'Card', 'List'].includes(dcType)) {
       out.children = children;
     }
@@ -298,10 +298,7 @@ function convertNode(node, topLevel) {
 
 function exportFrame(node) {
   exportMap = {};
-  const b = node.absoluteBoundingBox || { x: 0, y: 0 };
-  exportOrigin = { x: b.x, y: b.y };
-  const root = convertNode(node, true);
-  exportOrigin = null;
+  const root = convertNode(node, true, node.absoluteBoundingBox);
   return {
     schema_version: '0.1.0',
     meta: {
@@ -598,14 +595,15 @@ async function renderNodeFaithful(node, parent) {
     return;
   }
 
-  // Contenitori: frame assoluto, niente auto-layout
+  // Contenitori: frame assoluto, niente auto-layout. Niente clipsContent:
+  // nell'originale i contenuti possono legittimamente debordare dai gruppi;
+  // il clip lo fa solo il root (in renderScreen).
   const frame = newFrame(node.type, node.id);
   frame.layoutMode = 'NONE';
   const bg = hexToFigmaColor(tokenValue(style.background));
   frame.fills = bg ? [{ type: 'SOLID', color: bg }] : [];
   if (style.radius != null) frame.cornerRadius = num(tokenValue(style.radius), 0);
   if (f) frame.resize(Math.max(f.w, 1), Math.max(f.h, 1));
-  frame.clipsContent = true;
   parent.appendChild(frame);
   if (f) { frame.x = f.x; frame.y = f.y; }
   for (const child of kids) {

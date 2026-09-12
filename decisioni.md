@@ -177,7 +177,7 @@ Comunicazione: code.js ↔ ui.html via `postMessage`; ui.html ↔ bridge via fet
 ## D32 — Render fedele: geometria reale + clonazione immagini dal sorgente
 **Contesto:** il primo render JSON→canvas era uno "scheletro a blocchi" (auto-layout con dimensioni di default, immagini come placeholder grigi): utile per la struttura, non per valutare il design.
 **Decisione:**
-1. **Export**: ogni nodo porta `layout.frame: {x, y, w, h}` (coordinate relative al frame radice, da `absoluteBoundingBox`) e `meta.figma_node_id`. Il validatore ignora entrambi (verificato: findings invariati).
+1. **Export**: ogni nodo porta `layout.frame: {x, y, w, h}` (coordinate **relative al genitore**, da `absoluteBoundingBox` — in render i figli sono posizionati dentro il frame parent; una prima versione root-relativa spostava/clippava i nodi annidati) e `meta.figma_node_id`. Il validatore ignora entrambi (verificato: findings invariati). `clipsContent` solo sul root: i contenuti possono legittimamente debordare dai gruppi.
 2. **Render**: se il JSON ha geometria, il plugin usa **posizionamento assoluto** (niente auto-layout, `clipsContent`); altrimenti resta il render strutturale come fallback (JSON scritti a mano, codegen).
 3. **Immagini e icone**: non ricreabili dal JSON senza portarsi dietro i byte — il renderer **clona il nodo Figma sorgente** via `figma_node_id` (stesso file, stesso documento: copia perfetta, zero dati nel JSON). Se il nodo sorgente non esiste piu', placeholder come prima.
 4. **Container e testi** sono ricostruiti dal JSON (non clonati): cosi' i fix AI (colori, token) sono visibili nel render — clonare tutto renderebbe invisibili le correzioni.
