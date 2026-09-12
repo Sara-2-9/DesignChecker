@@ -641,6 +641,9 @@ def _ai_screen_command(args, root: Path, rules) -> None:
             print(f"    {op['op']:7} {op['path']}")
         print(f"  File aggiornato: {args.screen} (backup: {bak.name})")
         print("  Su Figma: dal plugin, Render per vedere la versione corretta.")
+        print("  Nota: il frame ORIGINALE su Figma e' ancora la versione vecchia —")
+        print("  riesportandolo sovrascrivi il fix (verra' salvato un backup")
+        print("  .preexport.bak). Continua a lavorare sul frame renderizzato.")
     else:
         print("\n✗ Nessuna correzione applicata: il file resta invariato.")
         print("  Puoi correggere a mano o riprovare con un altro modello (dck ai).")

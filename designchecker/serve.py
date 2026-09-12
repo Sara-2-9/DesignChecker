@@ -150,14 +150,37 @@ class Bridge:
             "exceptions": screen.get("meta", {}).get("exceptions_applied", []),
         }
 
+    @staticmethod
+    def _sha(text: str) -> str:
+        import hashlib
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
     def import_screen(self, screen: dict) -> dict:
         result = self.validate_screen(screen)
         out_dir = self.root / "imports"
         out_dir.mkdir(exist_ok=True)
         screen_id = screen.get("meta", {}).get("id", "screen")
         out_path = out_dir / f"{screen_id}.screen.json"
-        out_path.write_text(json.dumps(screen, indent=2, ensure_ascii=False),
-                            encoding="utf-8")
+        sidecar = out_dir / f".{screen_id}.export.sha256"
+        new_content = json.dumps(screen, indent=2, ensure_ascii=False)
+
+        # Anti-perdita: se il file su disco e' stato modificato FUORI dal
+        # canale export (es. un fix AI) rispetto all'ultimo export noto,
+        # salvalo prima di sovrascriverlo e avvisa il plugin (D29/D31).
+        if out_path.exists() and sidecar.exists():
+            disk = out_path.read_text(encoding="utf-8")
+            last_export_sha = sidecar.read_text(encoding="utf-8").strip()
+            if self._sha(disk) != last_export_sha and self._sha(disk) != self._sha(new_content):
+                bak = out_path.with_suffix(out_path.suffix + ".preexport.bak")
+                bak.write_text(disk, encoding="utf-8")
+                result["notice"] = (
+                    f"Il file era stato modificato fuori dal canvas (es. fix AI): "
+                    f"la versione modificata e' salva in {bak.name}. Attenzione: "
+                    "il frame esportato e' piu' vecchio del fix — aggiorna il "
+                    "frame renderizzato, non quello originale.")
+
+        out_path.write_text(new_content, encoding="utf-8")
+        sidecar.write_text(self._sha(new_content), encoding="utf-8")
         result["path"] = str(out_path)
         return result
 

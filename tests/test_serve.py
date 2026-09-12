@@ -180,6 +180,62 @@ class TestEccezioniEGradienti(unittest.TestCase):
         self.assertNotIn("ds.no-hardcoded-value", {f.rule_id for f in findings})
 
 
+class TestImportSyncGuard(unittest.TestCase):
+    """Anti-perdita: un export non deve mai cancellare modifiche esterne
+    (es. fix AI) senza backup e avviso."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bridge = Bridge(ROOT)
+        cls.imports = ROOT / "imports"
+        cls.victim = cls.imports / "test-sync-guard.screen.json"
+        cls.sidecar = cls.imports / ".test-sync-guard.export.sha256"
+        cls.bak = cls.imports / "test-sync-guard.screen.json.preexport.bak"
+
+    @classmethod
+    def tearDownClass(cls):
+        for p in (cls.victim, cls.sidecar, cls.bak):
+            p.unlink(missing_ok=True)
+
+    def _screen(self, text):
+        return {"schema_version": "0.1",
+                "meta": {"id": "test-sync-guard", "name": "T"},
+                "root": {"id": "r", "type": "Screen",
+                         "children": [{"id": "t1", "type": "Text",
+                                       "props": {"content": text}}]}}
+
+    def test_export_poi_modifica_esterna_poi_export(self):
+        # 1. export dal canvas: scrive file + sidecar
+        r1 = self.bridge.import_screen(self._screen("v1"))
+        self.assertNotIn("notice", r1)
+        self.assertTrue(self.sidecar.exists())
+
+        # 2. modifica esterna (simula `dck fix`)
+        import json as _json
+        fixed = self._screen("v2-corretto-dal-fix")
+        self.victim.write_text(_json.dumps(fixed, indent=2), encoding="utf-8")
+
+        # 3. nuovo export dal canvas (contenuto vecchio): backup + notice
+        r3 = self.bridge.import_screen(self._screen("v3-dal-canvas"))
+        self.assertIn("notice", r3)
+        self.assertTrue(self.bak.exists())
+        self.assertIn("v2-corretto-dal-fix",
+                      _json.loads(self.bak.read_text())["root"]["children"][0]
+                      ["props"]["content"])
+
+        # 4. export identico al disco: nessun falso positivo
+        r4 = self.bridge.import_screen(self._screen("v3-dal-canvas"))
+        self.assertNotIn("notice", r4)
+
+    def test_export_normale_senza_sidecar_non_avvisa(self):
+        # file preesistente senza sidecar (era pre-D31): primo export silenzioso
+        self.sidecar.unlink(missing_ok=True)
+        self.victim.write_text('{"meta": {"id": "test-sync-guard"}}',
+                               encoding="utf-8")
+        r = self.bridge.import_screen(self._screen("v1"))
+        self.assertNotIn("notice", r)
+
+
 class TestBridgeAI(unittest.TestCase):
     """Endpoint AI del bridge (D31) con provider finto: niente rete."""
 

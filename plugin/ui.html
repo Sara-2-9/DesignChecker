@@ -127,6 +127,12 @@ async function boot() {
 function renderFindings(data) {
   const box = $('findings');
   box.innerHTML = '';
+  if (data.notice) {
+    const n = document.createElement('div');
+    n.className = 'finding warning';
+    n.innerHTML = '<div class="rule">⚠ attenzione</div><div>' + data.notice + '</div>';
+    box.appendChild(n);
+  }
   const findings = data.findings || [];
   const errors = findings.filter((f) => f.severity === 'error').length;
   $('summary').innerHTML = findings.length === 0
