@@ -50,7 +50,8 @@ python3 -m designchecker rules                                        # elenco r
 
 # Codegen: dallo screen JSON a un'app Expo vera
 python3 -m designchecker generate examples/home.screen.json --out examples/generated-app
-cd examples/generated-app && npm install && npx expo install --fix && npx expo start
+cd examples/generated-app && npm install && npx expo start
+# (le dipendenze del package.json generato sono gia' allineate a SDK 57)
 # Se lo screen ha geometria Figma (layout.frame), il codegen usa posizionamento
 # assoluto: nel simulatore vedi la stessa composizione del canvas (D33).
 

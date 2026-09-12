@@ -665,15 +665,15 @@ export function use{pascal(state)}() {{
             "scripts": {"start": "expo start", "ios": "expo start --ios",
                         "android": "expo start --android"},
             "dependencies": {
-                "expo": "^57.0.0",
+                "expo": "~57.0.0",
                 "expo-router": "~57.0.0",
                 "expo-status-bar": "*",
-                "react": "^19.2.3",
-                "react-native": "0.85.0",
-                "react-native-safe-area-context": "*",
-                "react-native-screens": "*"
+                "react": "19.2.3",
+                "react-native": "0.86.3",
+                "react-native-safe-area-context": "~5.7.0",
+                "react-native-screens": "~4.26.0"
             },
-            "note": "Dopo npm install: esegui `npx expo install --fix` per allineare le versioni all'SDK installato."
+            "note": "Versioni allineate a Expo SDK 57 (react/RN esatte, come i template ufficiali: il caret su react trascina minor non supportate). Dopo npm install: `npx expo install --check` deve risultare pulito."
         }, indent=2)
 
     def app_json(self) -> str:
