@@ -669,11 +669,16 @@ export function use{pascal(state)}() {{
                 "expo-router": "~57.0.0",
                 "expo-status-bar": "*",
                 "react": "19.2.3",
+                "react-dom": "19.2.3",
                 "react-native": "0.86.3",
                 "react-native-safe-area-context": "~5.7.0",
                 "react-native-screens": "~4.26.0"
             },
-            "note": "Versioni allineate a Expo SDK 57 (react/RN esatte, come i template ufficiali: il caret su react trascina minor non supportate). Dopo npm install: `npx expo install --check` deve risultare pulito."
+            "devDependencies": {
+                "@types/react": "~19.2.0",
+                "typescript": "~6.0.3"
+            },
+            "note": "Versioni allineate a Expo SDK 57 (react/react-dom/RN esatte, come i template ufficiali: il caret trascina minor non supportate). react-dom e' fissato perche' i pacchetti Radix di expo-router altrimenti risolvono la 19.3.0 (peer react ^19.3.0) e npm fallisce negli install successivi. typescript in devDeps evita l'install interattivo al primo `expo start`."
         }, indent=2)
 
     def app_json(self) -> str:
