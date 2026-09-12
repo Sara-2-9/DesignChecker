@@ -51,7 +51,7 @@
   <h1>DesignChecker</h1>
   <div class="row">
     <span class="dot off" id="dot"></span>
-    <span id="status">bridge non raggiungibile — avvia: dc serve</span>
+    <span id="status">bridge non raggiungibile — avvia: dck serve</span>
   </div>
   <div class="row">
     <button id="btn-export" disabled>Esporta selezione e valida</button>
@@ -111,7 +111,7 @@ async function boot() {
       $('btn-review').disabled = false;
       $('btn-fix').disabled = false;
     } else {
-      $('ai-model').textContent = '· non configurata (dc ai)';
+      $('ai-model').textContent = '· non configurata (dck ai)';
     }
     try {
       const list = await bridge('/screens');
@@ -120,7 +120,7 @@ async function boot() {
     } catch (e) { /* niente autocompletamento: non blocca */ }
   } catch (e) {
     $('dot').className = 'dot off';
-    $('status').textContent = 'bridge non raggiungibile — avvia: dc serve';
+    $('status').textContent = 'bridge non raggiungibile — avvia: dck serve';
   }
 }
 

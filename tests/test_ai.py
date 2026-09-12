@@ -170,6 +170,9 @@ class TestProviders(unittest.TestCase):
         self.assertTrue(kc.detected)
         self.assertIn("coding", kc.base_url)
         self.assertEqual(ai.api_key_for(kc, config), "sk-kimi-code")
+        # la temperature=None del template deve sopravvivere al rilevamento
+        # (Kimi Code rifiuta temperature esplicita: HTTP 400)
+        self.assertIsNone(kc.temperature)
 
     def test_detect_custom_via_config(self):
         config = {"ai": {"base_url": "https://mio-host/v1", "model": "mio-modello",

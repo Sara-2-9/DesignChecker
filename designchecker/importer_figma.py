@@ -310,7 +310,7 @@ class FigmaImporter:
 
 
 def list_frames(file_tree: dict) -> list[str]:
-    """Nomi dei frame top-level (le 'schermate') per `dc screens`."""
+    """Nomi dei frame top-level (le 'schermate') per `dck screens`."""
     frames = []
     for page in (file_tree.get("document", {}) or {}).get("children", []) or []:
         for frame in page.get("children", []) or []:

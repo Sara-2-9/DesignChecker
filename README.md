@@ -76,9 +76,9 @@ designchecker review imports/home2.screen.json   # valutazione qualitativa del d
 designchecker fix imports/home2.screen.json      # l'AI propone una patch, il validatore approva
 ```
 
-Provider cloud supportati (selezionabili in `dc ai` incollando la API key):
+Provider cloud supportati (selezionabili in `dck ai` incollando la API key):
 - **Kimi Code** — se hai un abbonamento Kimi con Kimi Code incluso: genera la chiave
-  dalla console Kimi Code (kimi.com/code) e incollala in `dc ai`. Usa la quota
+  dalla console Kimi Code (kimi.com/code) e incollala in `dck ai`. Usa la quota
   dell'abbonamento, non crediti API separati. ⚠️ Le chiavi della console Kimi Code,
   di platform.kimi.ai e di platform.moonshot.cn NON sono intercambiabili (401).
 - **Kimi API pay-as-you-go**, **Claude**, **OpenAI** — con la rispettiva API key
@@ -111,7 +111,7 @@ designchecker serve          # bridge locale su http://localhost:7357 (lasciarlo
 ```
 ├── designchecker/     ← tokens, validator, report, cli, loader, codegen, importer_figma, importer_code, serve (bridge), ai (provider), patcher (fix loop)
 ├── plugin/            ← plugin Figma (manifest.json, code.js, ui.html): export, annotazioni real-time, render canvas, valuta/correggi con AI
-├── tools/             ← tsx2json.cjs: parser statico TSX (Node + @babel/parser) per dc import code
+├── tools/             ← tsx2json.cjs: parser statico TSX (Node + @babel/parser) per dck import code
 ├── rules/             ← 6 file: ios-hig, material3, wcag, design-system, expo-rn, ux-heuristics
 ├── components.catalog.yaml
 ├── examples/          ← tokens.json, schermate di esempio, generated-app/ (progetto Expo)

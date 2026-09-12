@@ -7,18 +7,18 @@
 
 ## v0.2 — Codegen — ✅ FATTO
 - Component library React Native conforme per costruzione
-- `dc generate`: dallo screen JSON a progetto Expo completo (struttura SDK 57, Native Tabs, theme.ts dai token)
+- `dck generate`: dallo screen JSON a progetto Expo completo (struttura SDK 57, Native Tabs, theme.ts dai token)
 
 ## v0.3 — Importer + provider layer (IN CORSO — decisioni D21–D24)
-- **Importer Figma** ✅: `dc link figma <url>` + `dc screens` + `dc import figma <frame>` (REST API read-only, PAT) — testato su file Figma reale
-- **Importer codice** ✅: `dc import code <path.tsx>` (helper Node AST, parsing statico; segue gli import dei componenti custom; roundtrip su generated-app: 0 errori) — 11 test
-- **Destinazione codice** ✅ (D28): post-import il CLI chiede nuovo progetto vs esistente; `dc project` per gestire il collegamento; mai sovrascritture senza consenso
+- **Importer Figma** ✅: `dck link figma <url>` + `dck screens` + `dck import figma <frame>` (REST API read-only, PAT) — testato su file Figma reale
+- **Importer codice** ✅: `dck import code <path.tsx>` (helper Node AST, parsing statico; segue gli import dei componenti custom; roundtrip su generated-app: 0 errori) — 11 test
+- **Destinazione codice** ✅ (D28): post-import il CLI chiede nuovo progetto vs esistente; `dck project` per gestire il collegamento; mai sovrascritture senza consenso
 - **Provider layer AI** ✅ (D31): rilevamento Ollama/LM Studio/API key, menu due gruppi, probe, routing per task
-- **Fix loop AI** ✅ (D31): `dc fix` — l'LLM propone JSON Patch, il validatore approva o rifiuta
-- **Importer screenshot**: `dc import shot <png>` (provider layer ✅ + modello vision)
+- **Fix loop AI** ✅ (D31): `dck fix` — l'LLM propone JSON Patch, il validatore approva o rifiuta
+- **Importer screenshot**: `dck import shot <png>` (provider layer ✅ + modello vision)
 
 ## v0.4 — Plugin Figma + editing bidirezionale (IN CORSO — D29, D31)
-- ✅ Plugin: export frame → screen JSON via Plugin API (zero REST, zero rate limit), audit via bridge locale `dc serve`
+- ✅ Plugin: export frame → screen JSON via Plugin API (zero REST, zero rate limit), audit via bridge locale `dck serve`
 - ✅ Annotazioni real-time sul canvas (toggle, debounce 900ms): rettangoli rossi/arancio + regola violata
 - ✅ Scrittura su canvas: render screen JSON → frame nativi (auto-layout, token risolti, dc_id in pluginData)
 - ✅ Integrazione AI nel plugin: bottoni "Valuta il design" (review consultiva) e "Correggi con AI" (patch gated dal validatore → render automatico)

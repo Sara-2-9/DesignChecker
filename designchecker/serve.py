@@ -16,7 +16,7 @@ Endpoint:
   POST /fix            -> body: screen JSON; patch AI gated dal validatore (D31)
 
 Sicurezza: ascolta solo su loopback; nessuna scrittura fuori da imports/.
-Le chiamate AI escono solo verso il provider scelto dall'utente in `dc ai`;
+Le chiamate AI escono solo verso il provider scelto dall'utente in `dck ai`;
 l'output del modello passa SEMPRE dal validatore prima di toccare il JSON.
 """
 from __future__ import annotations
@@ -78,7 +78,7 @@ class Bridge:
         from . import patcher
         p, model, config = self._ai_provider()
         if p is None:
-            return {"error": "Provider AI non configurato: lancia `dc ai`"}
+            return {"error": "Provider AI non configurato: lancia `dck ai`"}
         findings = validate(screen, self.rules, self.tokens, self.catalog)
         messages = patcher.build_review_prompt(screen, findings)
         try:
@@ -92,7 +92,7 @@ class Bridge:
         from . import patcher
         p, model, config = self._ai_provider()
         if p is None:
-            return {"error": "Provider AI non configurato: lancia `dc ai`"}
+            return {"error": "Provider AI non configurato: lancia `dck ai`"}
         findings = validate(screen, self.rules, self.tokens, self.catalog)
 
         def validate_fn(scr):

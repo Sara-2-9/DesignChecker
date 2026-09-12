@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installazione CLI DesignChecker (macOS / Linux) — da eseguire UNA volta:
 #   bash install.sh
-# Dopo: `designchecker ...` (o `dc ...`) funziona da qualsiasi cartella,
+# Dopo: `designchecker ...` (o `dck ...`) funziona da qualsiasi cartella,
 # senza mai attivare il venv a mano.
 set -e
 
@@ -24,7 +24,8 @@ cat > "$HOME/.local/bin/designchecker" <<EOF
 PYTHONPATH="$DIR" exec "$DIR/.venv/bin/python3" -m designchecker "\$@"
 EOF
 chmod +x "$HOME/.local/bin/designchecker"
-ln -sf "$HOME/.local/bin/designchecker" "$HOME/.local/bin/dc"
+# Alias corto: dck (NON "dc": su Unix dc e' la calcolatrice da terminale)
+ln -sf "$HOME/.local/bin/designchecker" "$HOME/.local/bin/dck"
 
 echo "4/5  PATH…"
 case ":$PATH:" in
@@ -36,14 +37,20 @@ case ":$PATH:" in
     echo "     → apri un NUOVO terminale (o esegui: source ~/.zshrc)" ;;
 esac
 
-echo "5/5  Parser TSX (per 'dc import code')…"
+echo "5/5  Parser TSX (per 'dck import code')…"
 if command -v node >/dev/null 2>&1; then
   if [ ! -d "$DIR/tools/node_modules/@babel/parser" ]; then
-    (cd "$DIR/tools" && npm install --no-bin-links --silent)
+    if (cd "$DIR/tools" && npm install --no-bin-links); then
+      echo "     @babel/parser installato ✓"
+    else
+      echo "     ⚠ npm install fallito: 'dck import code' non funzionera' finche' non risolvi."
+      echo "       Riprova con: cd $DIR/tools && npm install"
+    fi
+  else
+    echo "     @babel/parser pronto ✓"
   fi
-  echo "     @babel/parser pronto ✓"
 else
-  echo "     Node.js non trovato: 'dc import code' lo richiede (lo stesso Node di Expo)."
+  echo "     Node.js non trovato: 'dck import code' lo richiede (lo stesso Node di Expo)."
   echo "     Installa Node e poi esegui: cd $DIR/tools && npm install"
 fi
 

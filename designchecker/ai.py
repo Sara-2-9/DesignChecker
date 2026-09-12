@@ -137,7 +137,8 @@ def detect_providers(config: dict | None = None, http_json=_http_json) -> list[P
     out = []
     for tmpl in PROVIDERS:
         p = Provider(tmpl.pid, tmpl.label, tmpl.group, tmpl.style,
-                     tmpl.base_url, tmpl.env_key, alt_env=tmpl.alt_env)
+                     tmpl.base_url, tmpl.env_key, alt_env=tmpl.alt_env,
+                     temperature=tmpl.temperature)
         try:
             if p.pid == "ollama":
                 _detect_ollama(p, http_json)

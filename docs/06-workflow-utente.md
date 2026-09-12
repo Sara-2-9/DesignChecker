@@ -25,9 +25,9 @@ Codice TypeScript pulito (Expo Router, StyleSheet.create, SafeAreaView, Pressabl
 ## Scenario B — Redesign di app esistente (caso d'uso primario attuale)
 
 1. **Import** — tre sorgenti a scelta (D24):
-   - `dc link figma <url>` + `dc import figma "Home"` — dal file Figma (geometria perfetta, semantica inferita da naming/istanze);
-   - `dc import code src/screens/home/index.tsx` — dal codice dell'app (semantica perfetta, navigazione reale);
-   - `dc import shot home.png` — da screenshot (fallback, richiede modello vision).
+   - `dck link figma <url>` + `dck import figma "Home"` — dal file Figma (geometria perfetta, semantica inferita da naming/istanze);
+   - `dck import code src/screens/home/index.tsx` — dal codice dell'app (semantica perfetta, navigazione reale);
+   - `dck import shot home.png` — da screenshot (fallback, richiede modello vision).
 2. **Estrazione:** → screen JSON (bozza da confermare, con flag di confidenza per nodo).
 3. **Audit:** il validatore produce il report delle violazioni delle schermate attuali.
 4. **Redesign proposto:** stessa funzionalità, regole rispettate, token applicati → subito su simulatore e Figma.

@@ -310,7 +310,7 @@ def _print_next_steps(project_dir: Path, existing: bool = False) -> None:
 
 
 def _project_command(args) -> None:
-    """`dc project` mostra il progetto collegato; `dc project <path>` lo cambia."""
+    """`dck project` mostra il progetto collegato; `dc project <path>` lo cambia."""
     from .project import is_expo_project
     config = _load_config()
     if getattr(args, "forget", False):
@@ -338,7 +338,7 @@ def _project_command(args) -> None:
 
 
 def _code_import(args, root: Path) -> None:
-    """`dc import code <file.tsx>`: parsing statico + conversione + audit (D23/D24)."""
+    """`dck import code <file.tsx>`: parsing statico + conversione + audit (D23/D24)."""
     from .codegen import kebab
     from .importer_code import CodeImporter, CodeImportError, parse_tsx
     import json as _json
@@ -491,7 +491,7 @@ def _ai_command(args) -> None:
     if args.probe:
         p, model = _resolve_provider(config)
         if p is None:
-            print("Nessun provider configurato. Lancia: dc ai", file=sys.stderr)
+            print("Nessun provider configurato. Lancia: dck ai", file=sys.stderr)
             sys.exit(2)
         print(f"Probe: {p.label} · modello {model}…")
         ok, detail = _ai.probe(p, model, config)
@@ -593,7 +593,7 @@ def _ai_screen_command(args, root: Path, rules) -> None:
     task = "review" if args.command == "review" else "patch_fix"
     p, model = _resolve_provider(config, task)
     if p is None or not model:
-        print("Nessun provider AI configurato. Lancia prima: dc ai", file=sys.stderr)
+        print("Nessun provider AI configurato. Lancia prima: dck ai", file=sys.stderr)
         sys.exit(2)
 
     screen = load_screen(args.screen)
@@ -642,5 +642,5 @@ def _ai_screen_command(args, root: Path, rules) -> None:
         print("  Su Figma: dal plugin, Render per vedere la versione corretta.")
     else:
         print("\n✗ Nessuna correzione applicata: il file resta invariato.")
-        print("  Puoi correggere a mano o riprovare con un altro modello (dc ai).")
+        print("  Puoi correggere a mano o riprovare con un altro modello (dck ai).")
     sys.exit(0 if result["applied"] or result["before"][0] == 0 else 1)

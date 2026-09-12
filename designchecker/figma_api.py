@@ -46,7 +46,7 @@ class FigmaClient:
             raise FigmaAPIError(0, f"Errore di rete: {e.reason}") from e
 
     def me(self) -> dict:
-        """Verifica il token (usata da `dc link figma`)."""
+        """Verifica il token (usata da `dck link figma`)."""
         return self._get("/me")
 
     def file_tree(self, file_key: str, depth: int = 2) -> dict:
