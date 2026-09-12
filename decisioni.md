@@ -183,3 +183,13 @@ Comunicazione: code.js ↔ ui.html via `postMessage`; ui.html ↔ bridge via fet
 4. **Container e testi** sono ricostruiti dal JSON (non clonati): cosi' i fix AI (colori, token) sono visibili nel render — clonare tutto renderebbe invisibili le correzioni.
 5. **Guardia anti-perdita** (stessa tornata): `/import` non sovrascrive piu' alla cieca — se il file su disco e' stato modificato fuori dal canale export (es. fix AI), il bridge salva `.preexport.bak` e avvisa il pannello prima di sovrascrivere.
 **Motivazione:** il render serve a valutare il design corretto: deve assomigliare all'originale, ma riflettere le decisioni del sistema (token, fix), non fotocopiare gli errori.
+
+## D33 — Codegen con geometria: posizionamento assoluto nel simulatore
+**Contesto:** il codegen Expo ignorava `layout.frame`: anche per schermate importate da Figma generava layout a flusso (flex + padding), quindi l'anteprima nel simulatore non somigliava al canvas.
+**Decisione:**
+1. Se un nodo ha `layout.frame`, il codegen emette `position: 'absolute'` + `left/top/width/height` (coordinate parent-relative, come in Figma); le regole di sizing a flusso (flex, alignSelf) si applicano solo in assenza di frame. Il root resta `flex: 1` (il frame del root e' il device, non un vincolo del genitore).
+2. Root **senza** `SafeAreaView` quando c'e' geometria: le coordinate partono da 0,0 del device (come in Figma), la status bar resta gestita da `expo-status-bar` — SafeAreaView sposterebbe tutto in basso.
+3. Le immagini restano placeholder nel simulatore: i byte non escono da Figma (stessa limitazione del JSON). La TabBar resta delegata a `src/app/_layout.tsx` (Native Tabs di expo-router), non viene emessa come View assoluta.
+4. Il componente `Button` della libreria accetta ora la prop `style` (mergiata nel Pressable): senza, un Button importato perdeva posizione e dimensione dal frame. Il `Fab` con frame usa il frame (niente anchor bottom/right in conflitto). Fix collaterale: `Image` mancava dagli import react-native del file generato.
+**Motivazione:** `dck generate` su uno screen importato deve dare nel simulatore la stessa composizione vista in Figma — altrimenti il giro Figma→JSON→app perde la meta' del valore.
+

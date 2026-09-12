@@ -147,3 +147,63 @@ class TestProjectDetection(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCodegenGeometry(unittest.TestCase):
+    """D32: con layout.frame il codegen usa posizionamento assoluto."""
+
+    def _screen_with_geo(self):
+        return {
+            "schema_version": "0.1",
+            "meta": {"id": "geo", "name": "Geo", "route": "/geo"},
+            "root": {
+                "id": "main", "type": "Screen",
+                "layout": {"safe_area": True,
+                           "frame": {"x": 0, "y": 0, "w": 402, "h": 874}},
+                "style": {"background": "{color.surface}"},
+                "children": [
+                    {"id": "title", "type": "Text",
+                     "props": {"content": "Ciao", "variant": "heading"},
+                     "layout": {"frame": {"x": 24, "y": 120, "w": 200, "h": 40}},
+                     "style": {"color": "{color.text-primary}"}},
+                    {"id": "badge", "type": "Stack",
+                     "layout": {"frame": {"x": 300, "y": 700, "w": 64, "h": 64}},
+                     "style": {"background": "{color.brand.primary}"},
+                     "children": []},
+                ],
+            },
+        }
+
+    def test_posizionamento_assoluto(self):
+        out = Path(tempfile.mkdtemp(prefix="dc-geo-"))
+        try:
+            tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+            catalog = load_catalog(ROOT / "components.catalog.yaml")
+            Codegen(self._screen_with_geo(), tokens, catalog).generate(out)
+            tsx = (out / "src/screens/geo/index.tsx").read_text()
+            self.assertIn("position: 'absolute'", tsx)
+            self.assertIn("left: 24,", tsx)
+            self.assertIn("top: 700,", tsx)
+            self.assertIn("width: 64,", tsx)
+            # il root con geometria non usa SafeAreaView (le coordinate
+            # partono da 0,0 del device, sotto la status bar)
+            self.assertNotIn("SafeAreaView", tsx)
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
+
+    def test_senza_geometria_restano_fill_e_safe_area(self):
+        out = Path(tempfile.mkdtemp(prefix="dc-nogeo-"))
+        try:
+            screen = load_screen(ROOT / "examples" / "home.screen.json")
+            tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+            catalog = load_catalog(ROOT / "components.catalog.yaml")
+            Codegen(screen, tokens, catalog).generate(out)
+            tsx = (out / "src/screens/home/index.tsx").read_text()
+            # senza geometria: niente coordinate assolute dal frame
+            # (il Fab usa comunque position:absolute con bottom/right,
+            # ma non left/top da layout.frame)
+            self.assertNotIn("left:", tsx)
+            self.assertNotIn("top:", tsx)
+            self.assertIn("SafeAreaView", tsx)
+        finally:
+            shutil.rmtree(out, ignore_errors=True)

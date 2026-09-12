@@ -125,11 +125,23 @@ class Codegen:
         if layout.get("gap"):
             st["gap"] = self._ts_value(layout["gap"], "spacing")
 
+        # Geometria reale (D32): con layout.frame il nodo va in posizionamento
+        # assoluto — anteprima pixel-fedele nel simulatore. Senza frame resta
+        # il flexbox semantico. Il root Screen resta flex:1 (riempie il device).
+        frame = layout.get("frame")
+        if frame and node.get("type") != "Screen":
+            st["position"] = "'absolute'"
+            st["left"] = str(int(frame.get("x", 0) or 0))
+            st["top"] = str(int(frame.get("y", 0) or 0))
+            st["width"] = str(int(frame.get("w", 0) or 0))
+            st["height"] = str(int(frame.get("h", 0) or 0))
+
         sizing = layout.get("sizing", {}) or {}
-        if sizing.get("w") == "fill" and node.get("type") != "Screen":
-            st["alignSelf"] = "'stretch'"
-        if sizing.get("h") == "fill":
-            st["flex"] = "1"
+        if not frame:
+            if sizing.get("w") == "fill" and node.get("type") != "Screen":
+                st["alignSelf"] = "'stretch'"
+            if sizing.get("h") == "fill":
+                st["flex"] = "1"
 
         if extra:
             st.update(extra)
@@ -191,7 +203,11 @@ class Codegen:
 
     def _emit_screen(self, node: dict, depth: int) -> str:
         self._register_style(node, extra={"flex": "1"})
-        wrapper = "SafeAreaView" if (node.get("layout", {}) or {}).get("safe_area") else "View"
+        layout = node.get("layout", {}) or {}
+        # Con geometria (D32) le coordinate partono da 0,0 del device:
+        # niente SafeAreaView (sposterebbe tutto sotto la status bar).
+        wrapper = "View" if layout.get("frame") else (
+            "SafeAreaView" if layout.get("safe_area") else "View")
         if wrapper == "SafeAreaView":
             self.needs_safe_area = True
         children = self._emit_children(node, depth + 1)
@@ -249,8 +265,11 @@ class Codegen:
         a11y_label = (node.get("a11y", {}) or {}).get("label")
         a11y_prop = (f" accessibilityLabel={json.dumps(a11y_label, ensure_ascii=False)}"
                      if a11y_label else "")
+        # Geometria/stile dal JSON (D33): il componente Button accetta style.
+        name = self._register_style(node)
+        style_prop = f" style={{styles.{name}}}" if name in self.styles else ""
         return (f"{i}<Button label={label} variant=\"{variant}\" "
-                f"onPress={{{on_press}}}{a11y_prop} />")
+                f"onPress={{{on_press}}}{a11y_prop}{style_prop} />")
 
     def _emit_fab(self, node: dict, depth: int) -> str:
         props = node.get("props", {}) or {}
@@ -258,19 +277,27 @@ class Codegen:
         # dimensione dal catalogo (default M3: 56) — conforme per costruzione
         size = int(dimension_to_float(props.get("size")
                                       or self.catalog.get("Fab", {}).get("defaults", {}).get("size", 56)))
-        extra = {"position": "'absolute'", "width": str(size), "height": str(size),
-                 "borderRadius": str(size // 2), "alignItems": "'center'",
-                 "justifyContent": "'center'"}
+        frame = layout.get("frame")
+        if frame:
+            # Con geometria reale (D33) posizione e dimensioni arrivano dal frame:
+            # niente anchor bottom/right, evitiamo vincoli in conflitto.
+            extra = {"borderRadius": str(int(frame.get("h", size) or size) // 2),
+                     "alignItems": "'center'", "justifyContent": "'center'"}
+        else:
+            extra = {"position": "'absolute'", "width": str(size), "height": str(size),
+                     "borderRadius": str(size // 2), "alignItems": "'center'",
+                     "justifyContent": "'center'"}
         offset = layout.get("offset", {}) or {}
         position = str(layout.get("position", "bottom-trailing"))
-        if "bottom" in position:
-            extra["bottom"] = self._ts_value(offset.get("y", "{spacing.4}"), "spacing")
-        if "top" in position:
-            extra["top"] = self._ts_value(offset.get("y", "{spacing.4}"), "spacing")
-        if "trailing" in position or "right" in position:
-            extra["right"] = self._ts_value(offset.get("x", "{spacing.4}"), "spacing")
-        if "leading" in position or "left" in position:
-            extra["left"] = self._ts_value(offset.get("x", "{spacing.4}"), "spacing")
+        if not frame:
+            if "bottom" in position:
+                extra["bottom"] = self._ts_value(offset.get("y", "{spacing.4}"), "spacing")
+            if "top" in position:
+                extra["top"] = self._ts_value(offset.get("y", "{spacing.4}"), "spacing")
+            if "trailing" in position or "right" in position:
+                extra["right"] = self._ts_value(offset.get("x", "{spacing.4}"), "spacing")
+            if "leading" in position or "left" in position:
+                extra["left"] = self._ts_value(offset.get("x", "{spacing.4}"), "spacing")
         name = self._register_style(node, extra=extra)
         on_press = self._action_ts(props.get("action"))
         a11y = node.get("a11y", {}) or {}
@@ -380,6 +407,8 @@ class Codegen:
             imports["react-native"].add("Switch")
         if "FlatList" in body:
             imports["react-native"].add("FlatList")
+        if "<Image" in body:
+            imports["react-native"].add("Image")
 
         lines = []
         if self.needs_safe_area:
@@ -470,25 +499,27 @@ export default function TabLayout() {{
     # ---------------------------------------------------------- componenti riusabili
 
     def button_tsx(self) -> str:
-        return """import { Pressable, Text, StyleSheet } from 'react-native';
+        return """import { Pressable, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { theme } from '../theme';
 
 // Componente dalla component library DesignChecker (catalogo: Button).
 // Conforme per costruzione: minHeight 48 (M3), Pressable, label sempre presente.
+// `style` permette al codegen di applicare geometria/override dal JSON (D33).
 type Props = {
   label: string;
   onPress?: () => void;
   variant?: 'primary' | 'secondary' | 'destructive';
   accessibilityLabel?: string;
+  style?: StyleProp<ViewStyle>;
 };
 
-export function Button({ label, onPress, variant = 'primary', accessibilityLabel }: Props) {
+export function Button({ label, onPress, variant = 'primary', accessibilityLabel, style }: Props) {
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
-      style={({ pressed }) => [styles.base, styles[variant], pressed && styles.pressed]}
+      style={({ pressed }) => [styles.base, styles[variant], style, pressed && styles.pressed]}
     >
       <Text style={[styles.label, variant === 'secondary' && styles.labelOnSecondary]}>
         {label}
