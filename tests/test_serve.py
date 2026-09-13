@@ -236,6 +236,55 @@ class TestImportSyncGuard(unittest.TestCase):
         self.assertNotIn("notice", r)
 
 
+class TestBridgeAssets(unittest.TestCase):
+    """D34: gli asset PNG esportati dal plugin arrivano in base64 e vengono
+    salvati in imports/assets/<screen_id>/ (path sanitizzato al basename)."""
+
+    PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bridge = Bridge(ROOT)
+        cls.imports = ROOT / "imports"
+        cls.screen_file = cls.imports / "test-assets.screen.json"
+        cls.sidecar = cls.imports / ".test-assets.export.sha256"
+        cls.assets_dir = cls.imports / "assets" / "test-assets"
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        cls.screen_file.unlink(missing_ok=True)
+        cls.sidecar.unlink(missing_ok=True)
+        shutil.rmtree(cls.assets_dir, ignore_errors=True)
+
+    def _screen(self):
+        return {"schema_version": "0.1",
+                "meta": {"id": "test-assets", "name": "T"},
+                "root": {"id": "r", "type": "Screen",
+                         "children": [{"id": "img", "type": "Image",
+                                       "props": {"asset": "assets/test-assets/f.png"}}]}}
+
+    def test_asset_salvato_e_sanitizzato(self):
+        result = self.bridge.import_screen(self._screen(), assets=[
+            {"path": "f.png", "data_base64": self.PNG_B64},
+            {"path": "../../etc/evil.png", "data_base64": self.PNG_B64},
+            {"path": "", "data_base64": self.PNG_B64},
+            {"path": "rotto.png", "data_base64": "!!!non-base64!!!"},
+        ])
+        self.assertEqual(result.get("assets_saved"), 2)
+        self.assertTrue((self.assets_dir / "f.png").is_file())
+        self.assertTrue((self.assets_dir / "evil.png").is_file())
+        self.assertFalse((self.imports / "evil.png").exists())
+        self.assertFalse((self.assets_dir / "rotto.png").exists())
+
+    def test_senza_assets_niente_directory(self):
+        import shutil
+        shutil.rmtree(self.assets_dir, ignore_errors=True)
+        result = self.bridge.import_screen(self._screen())
+        self.assertNotIn("assets_saved", result)
+        self.assertFalse(self.assets_dir.exists())
+
+
 class TestBridgeAI(unittest.TestCase):
     """Endpoint AI del bridge (D31) con provider finto: niente rete."""
 

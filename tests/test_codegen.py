@@ -298,3 +298,69 @@ class TestCodegenImagePlaceholder(unittest.TestCase):
         self.assertIn("{/* immagine: Fiamma (placeholder) */}", content)
         self.assertIn("backgroundColor: theme.colors.neutral[200]", content)
 
+
+class TestCodegenRealAssets(unittest.TestCase):
+    """D34: il plugin esporta i PNG (props.asset); il codegen emette
+    require() locale e copia i byte in src/assets/ del progetto."""
+
+    PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fake-png-payload"
+
+    def _screen_con_immagine(self):
+        return {
+            "schema_version": "0.1",
+            "meta": {"id": "img-test", "name": "Img", "route": "/"},
+            "root": {
+                "id": "main", "type": "Screen",
+                "layout": {"frame": {"x": 0, "y": 0, "w": 402, "h": 874}},
+                "style": {}, "children": [
+                    {"id": "flame", "type": "Image",
+                     "props": {"asset": "assets/img-test/img-test-flame.png", "alt": "Fiamma"},
+                     "layout": {"frame": {"x": 10, "y": 20, "w": 60, "h": 60}},
+                     "style": {}},
+                    {"id": "icon-gear", "type": "Icon",
+                     "props": {"name": "gearshape", "asset": "assets/img-test/img-test-icon-gear.png"},
+                     "layout": {"frame": {"x": 100, "y": 20, "w": 24, "h": 24}},
+                     "style": {}},
+                ],
+            },
+        }
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="dc-assets-"))
+        self.assets_dir = self.tmp / "imports" / "assets" / "img-test"
+        self.assets_dir.mkdir(parents=True)
+        (self.assets_dir / "img-test-flame.png").write_bytes(self.PNG_BYTES)
+        (self.assets_dir / "img-test-icon-gear.png").write_bytes(self.PNG_BYTES)
+        tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        catalog = load_catalog(ROOT / "components.catalog.yaml")
+        self.codegen = Codegen(self._screen_con_immagine(), tokens, catalog,
+                               assets_dir=self.assets_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_require_locale_in_image_e_icon(self):
+        _, _, content = self.codegen.screen_tsx()
+        self.assertIn("source={require('../../assets/img-test-flame.png')}", content)
+        self.assertIn("source={require('../../assets/img-test-icon-gear.png')}", content)
+        self.assertNotIn("(placeholder)", content)
+
+    def test_generate_copia_i_byte_in_src_assets(self):
+        out = self.tmp / "app"
+        self.codegen.generate(out)
+        for fname in ("img-test-flame.png", "img-test-icon-gear.png"):
+            copied = out / "src" / "assets" / fname
+            self.assertTrue(copied.is_file(), msg=f"manca {fname}")
+            self.assertEqual(copied.read_bytes(), self.PNG_BYTES)
+
+    def test_asset_mancante_torna_al_placeholder(self):
+        (self.assets_dir / "img-test-flame.png").unlink()
+        codegen = Codegen(self._screen_con_immagine(),
+                          TokenStore(load_tokens(ROOT / "examples" / "tokens.json")),
+                          load_catalog(ROOT / "components.catalog.yaml"),
+                          assets_dir=self.assets_dir)
+        _, _, content = codegen.screen_tsx()
+        self.assertIn("{/* immagine: Fiamma (placeholder) */}", content)
+        # l'icona con asset presente resta un'immagine reale
+        self.assertIn("source={require('../../assets/img-test-icon-gear.png')}", content)
+

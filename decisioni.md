@@ -195,3 +195,11 @@ Comunicazione: code.js ↔ ui.html via `postMessage`; ui.html ↔ bridge via fet
 6. **Immagini**: un `<Image source={{uri:''}}>` renderizza un box nero + warning RN (`source.uri should not be an empty string`) — il codegen emette invece un placeholder `View` neutro con commento. Le immagini vere restano un limite noto: i byte non escono da Figma (possibile evoluzione: `exportAsync` nel plugin → asset su disco → `require()` nel codegen).
 **Motivazione:** `dck generate` su uno screen importato deve dare nel simulatore la stessa composizione vista in Figma — altrimenti il giro Figma→JSON→app perde la meta' del valore.
 
+
+## D34 — Immagini vere nell'app: export PNG dal plugin → asset del progetto
+**Contesto:** D32 clonava le immagini nel render Figma (stesso documento, nessun byte nel JSON) e D33 lasciava placeholder nel simulatore: il giro Figma→app restava senza le immagini vere.
+**Decisione:** pipeline asset in tre stadi, tutta locale:
+1. **Export (plugin code.js)**: i nodi `Image`/`Icon` (incluse le icone `VECTOR`) vengono raccolti durante `convertNode` in `pendingAssets`; dopo l'export, `collectAssets()` chiama `node.exportAsync({format:'PNG'})` + `figma.base64Encode` per ciascuno, scrive `props.asset: "assets/<screen_id>/<fname>"` nel nodo JSON e allega `assets: [{path, data_base64}]` al messaggio `screen-exported`. Nodi non esportabili → si resta al placeholder (try/catch per nodo).
+2. **Bridge (`/import`)**: decodifica il base64 e salva in `imports/assets/<screen_id>/<fname>`, con **sanitizzazione al basename** (mai scrivere fuori da imports/assets/) e tolleranza ai payload rotti. Risposta con `assets_saved`.
+3. **Codegen**: se il nodo ha `props.asset` e il file esiste in `imports/assets/<screen_id>/`, emette `<Image source={require('../../assets/<fname>')} />` e copia i byte in `src/assets/` del progetto (sia `generate` sia `generate_into`). Se l'asset manca, resta il placeholder D33 — nessun uri vuoto, nessun riferimento rotto.
+**Motivazione:** i byte delle immagini non devono vivere nel JSON del design system (resta diff-abile e leggero), ma l'anteprima nel simulatore deve mostrare il design reale: il PNG e' un artefatto della pipeline (Figma → disco → progetto Expo), non del modello dati.

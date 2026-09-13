@@ -158,12 +158,12 @@ function renderFindings(data) {
   parent.postMessage({ pluginMessage: { type: 'annotate', findings, map: lastMap } }, '*');
 }
 
-async function validateScreen(screen) {
+async function validateScreen(screen, assets) {
   lastScreen = screen;
   const data = await bridge('/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ screen }),
+    body: JSON.stringify({ screen: screen, assets: assets || [] }),
   });
   renderFindings(data);
   $('status').textContent = 'audit salvato: ' + (data.path || '').split('/').pop();
@@ -237,7 +237,10 @@ window.onmessage = async (event) => {
   if (msg.type === 'screen-exported') {
     lastMap = msg.map || {};
     try {
-      await validateScreen(msg.screen);
+      await validateScreen(msg.screen, msg.assets);
+      if (msg.assets && msg.assets.length) {
+        $('status').textContent = $('status').textContent + ' · ' + msg.assets.length + ' immagini salvate';
+      }
     } catch (e) {
       $('status').textContent = 'bridge irraggiungibile durante la validazione';
     }

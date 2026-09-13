@@ -56,15 +56,43 @@ def kebab(name: str) -> str:
 
 class Codegen:
     def __init__(self, screen: dict, tokens: TokenStore, catalog: dict,
-                 app_name: str = "spesecondivise"):
+                 app_name: str = "spesecondivise", assets_dir: Path | None = None):
         self.screen = screen
         self.tokens = tokens
         self.catalog = catalog
         self.app_name = app_name
+        self.assets_dir = assets_dir
+        self.asset_copies: list[tuple[Path, str]] = []  # (sorgente, dest relativa)
         self.styles: dict[str, dict] = {}
         self.needs_router = False
         self.needs_safe_area = False
         self.list_bindings: list[dict] = []
+
+    # ---------------------------------------------------------- asset (D34)
+
+    def _register_asset(self, node: dict) -> str | None:
+        """Se il nodo ha props.asset (PNG esportato dal plugin) e il file
+        esiste in assets_dir: lo marca da copiare in src/assets/ e ritorna
+        l'espressione require() da usare come source."""
+        props = node.get("props", {}) or {}
+        rel = props.get("asset")
+        if not rel or not self.assets_dir:
+            return None
+        fname = Path(str(rel)).name
+        src = self.assets_dir / fname
+        if not src.is_file():
+            return None
+        dest = f"src/assets/{fname}"
+        if (src, dest) not in self.asset_copies:
+            self.asset_copies.append((src, dest))
+        return f"require('../../assets/{fname}')"
+
+    def _copy_assets(self, out_dir: Path, written: list[Path]) -> None:
+        for src, rel in self.asset_copies:
+            dest = out_dir / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(src.read_bytes())
+            written.append(dest)
 
     # ---------------------------------------------------------- theme.ts
 
@@ -391,12 +419,25 @@ class Codegen:
         return (f"{i}<Switch value={{{node_id}Value}} onValueChange={{set{pascal(node_id)}Value}} />")
 
     def _emit_icon(self, node: dict, depth: int) -> str:
+        req = self._register_asset(node)
+        i = self._indent(depth)
+        if req:
+            layout = node.get("layout", {}) or {}
+            extra = None if layout.get("frame") else {"width": "24", "height": "24"}
+            name = self._register_style(node, extra=extra)
+            return f"{i}<Image style={{styles.{name}}} source={{{req}}} />"
         name = node.get("props", {}).get("name", "?")
-        return self._indent(depth) + "{/* icona: " + str(name) + " */}"
+        return i + "{/* icona: " + str(name) + " */}"
 
     def _emit_image(self, node: dict, depth: int) -> str:
-        # I byte delle immagini non escono da Figma: un <Image> con uri vuoto
-        # renderizza un box nero + warning RN. Meglio un placeholder neutro.
+        i = self._indent(depth)
+        req = self._register_asset(node)
+        if req:
+            # Immagine reale esportata dal plugin (D34): PNG in src/assets/.
+            name = self._register_style(node)
+            return f"{i}<Image style={{styles.{name}}} source={{{req}}} />"
+        # Senza asset: un <Image> con uri vuoto renderizza un box nero +
+        # warning RN. Meglio un placeholder neutro.
         layout = node.get("layout", {}) or {}
         extra = {"backgroundColor": "theme.colors.neutral[200]",
                  "borderRadius": "theme.radius.sm"}
@@ -404,7 +445,6 @@ class Codegen:
             extra.update({"width": "120", "height": "120"})
         name = self._register_style(node, extra=extra)
         alt = (node.get("props", {}) or {}).get("alt") or (node.get("props", {}) or {}).get("source") or node.get("id", "")
-        i = self._indent(depth)
         return f"{i}{{/* immagine: {alt} (placeholder) */}}\n{i}<View style={{styles.{name}}} />"
 
     def _emit_generic(self, node: dict, depth: int) -> str:
@@ -814,6 +854,7 @@ export function use{pascal(state)}() {{
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
             written.append(path)
+        self._copy_assets(project_dir, written)
         return written, skipped
 
     def generate(self, out_dir: Path) -> list[Path]:
@@ -843,4 +884,5 @@ export function use{pascal(state)}() {{
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
             written.append(path)
+        self._copy_assets(out_dir, written)
         return written

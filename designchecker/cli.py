@@ -151,7 +151,8 @@ def main(argv: list[str] | None = None) -> None:
         screen = load_screen(args.screen)
         tokens = TokenStore(load_tokens(tokens_path))
         catalog = load_catalog(catalog_path)
-        codegen = Codegen(screen, tokens, catalog, app_name=args.app_name)
+        codegen = Codegen(screen, tokens, catalog, app_name=args.app_name,
+                          assets_dir=args.screen.parent / "assets" / screen.get("meta", {}).get("id", ""))
         written = codegen.generate(args.out)
         print(f"\n✓ Progetto Expo generato in {args.out} ({len(written)} file)\n")
         print("Per provarlo:")
@@ -235,7 +236,8 @@ def _offer_codegen(root: Path, screen: dict, tokens, catalog, has_errors: bool) 
         return
 
     codegen = Codegen(screen, tokens, catalog,
-                      app_name=kebab_app_name(screen))
+                      app_name=kebab_app_name(screen),
+                      assets_dir=root / "imports" / "assets" / screen.get("meta", {}).get("id", ""))
 
     if choice == "n":
         proposed = codegen.app_name

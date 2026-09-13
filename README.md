@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente). 111 test OK. Decisioni D1–D33.
+🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34). 116 test OK. Decisioni D1–D34.
 
 ### Installazione (una volta sola)
 
@@ -54,6 +54,8 @@ cd examples/generated-app && npm install && npx expo start
 # (le dipendenze del package.json generato sono gia' allineate a SDK 57)
 # Se lo screen ha geometria Figma (layout.frame), il codegen usa posizionamento
 # assoluto: nel simulatore vedi la stessa composizione del canvas (D33).
+# Se lo screen arriva dal plugin, immagini e icone sono i PNG veri esportati
+# da Figma (D34): finiscono in src/assets/ e vengono caricate con require().
 
 # Import da Figma: collega il file, elenca le schermate, importa + audit
 python3 -m designchecker link figma https://www.figma.com/design/<key>/il-tuo-file
@@ -101,7 +103,7 @@ designchecker serve          # bridge locale su http://localhost:7357 (lasciarlo
 
 2. In Figma (desktop o browser): **Menu → Plugins → Development → Import plugin from manifest…** → seleziona `DesignChecker/plugin/manifest.json`
 3. Seleziona un frame-schermata sul canvas → **Plugins → Development → DesignChecker**
-4. Nel pannello: **"Esporta selezione e valida"** → audit con errori/warning + rettangoli rossi/arancio disegnati sul canvas sui nodi che violano le regole
+4. Nel pannello: **"Esporta selezione e valida"** → audit con errori/warning + rettangoli rossi/arancio disegnati sul canvas sui nodi che violano le regole. Immagini e icone del frame vengono esportate come PNG veri in `imports/assets/<schermata>/` (D34)
 5. Attiva **"Tempo reale"**: ogni modifica al frame viene ri-validata (debounce ~1s) e le annotazioni si aggiornano da sole
 6. **Scrittura**: inserisci l'id di uno screen importato (es. `home2`) → **Render** → il plugin crea il frame nativo sul canvas dal JSON. Con gli export del plugin il render è **fedele**: geometria reale e immagini/icone clonate dall'originale (D32)
 7. **AI** (dopo `designchecker ai`): **"Valuta il design"** per un parere qualitativo, **"Correggi con AI"** per una patch automatica — accettata solo se il validatore conferma il miglioramento, poi renderizzata sul canvas

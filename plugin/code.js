@@ -209,9 +209,8 @@ function actionFromReactions(node) {
 }
 
 // ---------------------------------------------------------------- export
-let exportMap = {};  // dc id -> figma node id (per le annotazioni)
-
-// ---------------------------------------------------------------- export
+let exportMap = {};      // dc id -> figma node id (per le annotazioni)
+let pendingAssets = [];  // [{node, ref}] — nodi Image/Icon da esportare come PNG (D34)
 // Geometria fedele (D32): layout.frame di ogni nodo e' relativo al GENITORE
 // (non al root) — in render i figli sono posizionati dentro il frame parent.
 
@@ -240,12 +239,14 @@ function convertNode(node, topLevel, parentBox) {
   if (!topLevel && DEVICE_CHROME.test(name)) return null;
 
   if (node.type === 'VECTOR') {
-    return withGeo({
+    const out = withGeo({
       id: kebab(name), type: 'Icon',
       props: { name: norm(name) || 'icon' },
       layout: {}, style: {},
       meta: { source: 'figma-plugin', confidence: 0.9 },
     }, node, bounds, parentBox);
+    pendingAssets.push({ node: node, ref: out });
+    return out;
   }
 
   if (node.type === 'TEXT') {
@@ -344,11 +345,32 @@ function convertNode(node, topLevel, parentBox) {
       out.children = children;
     }
   }
+  if (dcType === 'Image' || dcType === 'Icon') {
+    pendingAssets.push({ node: node, ref: out });
+  }
   return out;
+}
+
+// Esporta i nodi Image/Icon come PNG (D34): i bytes viaggiano nel messaggio
+// verso la UI, che li inoltra al bridge (li salva in imports/assets/<screen>/);
+// il codegen poi li copia nel progetto Expo come require() locali.
+async function collectAssets(screenId) {
+  const assets = [];
+  for (const item of pendingAssets) {
+    try {
+      const bytes = await item.node.exportAsync({ format: 'PNG' });
+      const fname = screenId + '-' + item.ref.id + '.png';
+      item.ref.props = item.ref.props || {};
+      item.ref.props.asset = 'assets/' + screenId + '/' + fname;
+      assets.push({ path: fname, data_base64: figma.base64Encode(bytes) });
+    } catch (e) { /* nodo non esportabile: restera' il placeholder */ }
+  }
+  return assets;
 }
 
 function exportFrame(node) {
   exportMap = {};
+  pendingAssets = [];
   const root = convertNode(node, true, node.absoluteBoundingBox);
   return {
     schema_version: '0.1.0',
@@ -776,12 +798,13 @@ function currentTargetNode() {
   return null;
 }
 
-function exportAndAskValidation() {
+async function exportAndAskValidation() {
   const node = currentTargetNode();
   if (!node) return;
   watchedNodeId = node.id;
   const screen = exportFrame(node);
-  figma.ui.postMessage({ type: 'screen-exported', screen: screen, map: exportMap });
+  const assets = await collectAssets(screen.meta.id);
+  figma.ui.postMessage({ type: 'screen-exported', screen: screen, map: exportMap, assets: assets });
 }
 
 figma.on('documentchange', () => {
@@ -811,7 +834,8 @@ figma.ui.onmessage = async (msg) => {
     }
     watchedNodeId = node.id;
     const screen = exportFrame(node);
-    figma.ui.postMessage({ type: 'screen-exported', screen: screen, map: exportMap });
+    const assets = await collectAssets(screen.meta.id);
+    figma.ui.postMessage({ type: 'screen-exported', screen: screen, map: exportMap, assets: assets });
   }
   if (msg.type === 'annotate') {
     exportMap = msg.map || exportMap;

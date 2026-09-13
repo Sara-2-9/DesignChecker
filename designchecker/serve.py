@@ -155,7 +155,7 @@ class Bridge:
         import hashlib
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def import_screen(self, screen: dict) -> dict:
+    def import_screen(self, screen: dict, assets: list | None = None) -> dict:
         result = self.validate_screen(screen)
         out_dir = self.root / "imports"
         out_dir.mkdir(exist_ok=True)
@@ -163,6 +163,28 @@ class Bridge:
         out_path = out_dir / f"{screen_id}.screen.json"
         sidecar = out_dir / f".{screen_id}.export.sha256"
         new_content = json.dumps(screen, indent=2, ensure_ascii=False)
+
+        # Asset (D34): PNG esportati dal plugin (immagini/icone reali).
+        # Path sanitizzato (solo basename) — mai scrivere fuori da imports/assets/.
+        saved_assets = 0
+        if assets:
+            import base64
+            assets_dir = out_dir / "assets" / screen_id
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            for item in assets:
+                if not isinstance(item, dict):
+                    continue
+                name = Path(str(item.get("path", ""))).name
+                data = item.get("data_base64")
+                if not name or not data:
+                    continue
+                try:
+                    (assets_dir / name).write_bytes(base64.b64decode(data))
+                    saved_assets += 1
+                except Exception:
+                    continue
+            if saved_assets:
+                result["assets_saved"] = saved_assets
 
         # Anti-perdita: se il file su disco e' stato modificato FUORI dal
         # canale export (es. un fix AI) rispetto all'ultimo export noto,
@@ -249,7 +271,7 @@ def make_handler(bridge: Bridge):
             if self.path == "/validate":
                 self._send(200, bridge.validate_screen(screen))
             elif self.path == "/import":
-                self._send(200, bridge.import_screen(screen))
+                self._send(200, bridge.import_screen(screen, assets=payload.get("assets")))
             elif self.path == "/review":
                 self._send(200, bridge.ai_review(screen))
             elif self.path == "/fix":
