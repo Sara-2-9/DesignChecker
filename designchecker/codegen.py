@@ -22,6 +22,20 @@ ICON_MD_MAP = {
     "house": "home", "person": "person", "person.2": "group",
     "chart": "bar_chart", "wallet": "account_balance_wallet",
     "people": "group", "plus": "add", "gear": "settings",
+    "magnifyingglass": "search", "square.grid.2x2": "grid_view",
+    "gearshape": "settings",
+}
+
+# Nomi icona (kebab, da export Figma) -> SF Symbol valido. Un nome non mappato
+# produrrebbe un simbolo inesistente (tab bar nativa rotta/vuota): fallback.
+SF_ICON_MAP = {
+    "house": "house", "home": "house",
+    "magnifyingglass": "magnifyingglass", "search": "magnifyingglass",
+    "person": "person", "you": "person", "profile": "person", "account": "person",
+    "square-grid-2x2": "square.grid.2x2", "apps": "square.grid.2x2", "grid": "square.grid.2x2",
+    "gearshape": "gearshape", "gear": "gearshape", "settings": "gearshape",
+    "bell": "bell", "heart": "heart", "star": "star", "plus": "plus",
+    "wallet": "wallet.pass", "chart": "chart.bar", "people": "person.2", "group": "person.2",
 }
 
 
@@ -451,25 +465,43 @@ const styles = StyleSheet.create({{
 """
         return screen_id, component, content
 
-    def layout_tsx(self) -> str:
-        """src/app/_layout.tsx — Native Tabs se c'e' un TabBar, altrimenti Stack."""
+    def _tab_specs(self) -> list[dict]:
+        """Tab della TabBar normalizzate per Native Tabs:
+        nome route, label, SF Symbol valido, icona Material, ruolo.
+        Garantisce che esista un trigger per la route index — senza,
+        Native Tabs non mostra la schermata home (schermata vuota)."""
         tabbar = self._find_type(self.screen.get("root", {}), "TabBar")
         if not tabbar:
+            return []
+        tabs = list((tabbar.get("props", {}) or {}).get("tabs", []) or [])
+        if not any((t.get("route") or "/") == "/" for t in tabs):
+            tabs.insert(0, {"label": "Home", "icon": "house", "route": "/"})
+        specs = []
+        for tab in tabs:
+            route = str(tab.get("route") or "/")
+            name = "index" if route == "/" else kebab(route.strip("/"))
+            icon = kebab(str(tab.get("icon", "circle")))
+            sf = SF_ICON_MAP.get(icon, "circle")
+            specs.append({
+                "name": name, "label": str(tab.get("label") or name),
+                "sf": sf, "md": ICON_MD_MAP.get(sf, "circle"),
+                "role": "search" if tab.get("role") == "search" else None,
+            })
+        return specs
+
+    def layout_tsx(self) -> str:
+        """src/app/_layout.tsx — Native Tabs se c'e' un TabBar, altrimenti Stack."""
+        specs = self._tab_specs()
+        if not specs:
             return ("import { Stack } from 'expo-router';\n\n"
                     "export default function RootLayout() {\n  return <Stack />;\n}\n")
-        tabs = (tabbar.get("props", {}) or {}).get("tabs", [])
         triggers = []
-        for tab in tabs:
-            route = tab.get("route", "/")
-            name = "index" if route == "/" else route.strip("/")
-            icon = str(tab.get("icon", "circle"))
-            sf = icon.replace("-", ".")
-            md = ICON_MD_MAP.get(sf, "circle")
-            label = tab.get("label", name)
+        for spec in specs:
+            role = ' role="search"' if spec["role"] == "search" else ""
             triggers.append(
-                f'      <NativeTabs.Trigger name="{name}">\n'
-                f'        <NativeTabs.Trigger.Icon sf="{sf}" md="{md}" />\n'
-                f'        <NativeTabs.Trigger.Label>{label}</NativeTabs.Trigger.Label>\n'
+                f'      <NativeTabs.Trigger name="{spec["name"]}"{role}>\n'
+                f'        <NativeTabs.Trigger.Icon sf="{spec["sf"]}" md="{spec["md"]}" />\n'
+                f'        <NativeTabs.Trigger.Label>{spec["label"]}</NativeTabs.Trigger.Label>\n'
                 f'      </NativeTabs.Trigger>'
             )
         triggers_tsx = "\n".join(triggers)
@@ -484,6 +516,44 @@ export default function TabLayout() {{
     </NativeTabs>
   );
 }}
+"""
+
+    def tab_stub_tsx(self, name: str, label: str) -> str:
+        """Route segnaposto per un tab senza schermata progettata:
+        Native Tabs richiede che ogni Trigger corrisponda a una route reale."""
+        component = pascal(name)
+        return f"""import {{ StyleSheet, Text, View }} from 'react-native';
+import {{ theme }} from '../theme';
+
+// Segnaposto generato dalla TabBar del design (D33): sostituisci con la
+// schermata vera quando la progetti in Figma e la importi.
+export default function {component}Route() {{
+  return (
+    <View style={{styles.container}}>
+      <Text style={{styles.title}}>{label}</Text>
+      <Text style={{styles.subtitle}}>Schermata non ancora progettata</Text>
+    </View>
+  );
+}}
+
+const styles = StyleSheet.create({{
+  container: {{
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+    gap: theme.spacing['2'],
+  }},
+  title: {{
+    fontSize: theme.typography.heading,
+    fontWeight: '700',
+    color: theme.colors['text-primary'],
+  }},
+  subtitle: {{
+    fontSize: theme.typography.body,
+    color: theme.colors['text-secondary'],
+  }},
+}});
 """
 
     def _find_type(self, node: dict, type_name: str):
@@ -704,13 +774,18 @@ export function use{pascal(state)}() {{
         screen_id, component, screen_content = self.screen_tsx()
         route = (self.screen.get("meta", {}).get("route") or f"/{screen_id}").strip("/")
         route_rel = "src/app/index.tsx" if not route else f"src/app/{kebab(route)}.tsx"
-        files: dict[str, str] = {
+        files: dict[str, str] = {}
+        # stub dei tab PRIMA della route reale: se coincidono, vince la schermata
+        for spec in self._tab_specs():
+            if spec["name"] != "index":
+                files[f"src/app/{spec['name']}.tsx"] = self.tab_stub_tsx(spec["name"], spec["label"])
+        files.update({
             route_rel: self.route_tsx(component, screen_id),
             f"src/screens/{screen_id}/index.tsx": screen_content,
             "src/components/button.tsx": self.button_tsx(),
             "src/components/empty-state.tsx": self.empty_state_tsx(),
             "src/theme.ts": self.theme_ts(),
-        }
+        })
         files.update(self.data_files())
         for binding in self.list_bindings:
             files[f"src/screens/{screen_id}/components/{binding['row_kebab']}.tsx"] = \
@@ -745,6 +820,9 @@ export function use{pascal(state)}() {{
             "src/components/button.tsx": self.button_tsx(),
             "src/components/empty-state.tsx": self.empty_state_tsx(),
         }
+        for spec in self._tab_specs():
+            if spec["name"] != "index":
+                files[f"src/app/{spec['name']}.tsx"] = self.tab_stub_tsx(spec["name"], spec["label"])
         files.update(self.data_files())
         for binding in self.list_bindings:
             files[f"src/screens/{screen_id}/components/{binding['row_kebab']}.tsx"] = \

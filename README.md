@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente). 106 test OK. Decisioni D1–D33.
+🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente). 110 test OK. Decisioni D1–D33.
 
 ### Installazione (una volta sola)
 
@@ -118,7 +118,7 @@ designchecker serve          # bridge locale su http://localhost:7357 (lasciarlo
 ├── rules/             ← 6 file: ios-hig, material3, wcag, design-system, expo-rn, ux-heuristics
 ├── components.catalog.yaml
 ├── examples/          ← tokens.json, schermate di esempio, generated-app/ (progetto Expo)
-├── tests/             ← 106 test (validatore + codegen + importer + bridge + AI)
+├── tests/             ← 110 test (validatore + codegen + importer + bridge + AI)
 └── docs/              ← la progettazione completa
 ```
 

@@ -151,6 +151,41 @@ function firstText(node) {
   return null;
 }
 
+function tabNodesOf(bar) {
+  // I componenti TabBar spesso annidano i tab in un contenitore intermedio
+  // (es. "Tab Bar Buttons"): un figlio diretto SENZA un testo proprio e con
+  // piu' di un figlio e' un contenitore → appiattisci un livello.
+  const out = [];
+  for (const c of bar.children || []) {
+    if (c.visible === false) continue;
+    const kids = 'children' in c ? c.children.filter((g) => g.visible !== false) : [];
+    const ownText = kids.some((g) => g.type === 'TEXT');
+    if (kids.length > 1 && !ownText) out.push(...kids);
+    else out.push(c);
+  }
+  return out;
+}
+
+function tabIcon(tab, label) {
+  // cerca un discendente il cui nome suggerisce l'icona ("icon/home", "house"…)
+  let found = null;
+  (function walk(n) {
+    if (found || !('children' in n)) return;
+    for (const c of n.children) {
+      if (found) return;
+      const nm = (c.name || '').toLowerCase();
+      const looksIcon = /icon|glyph/.test(nm) ||
+        (['VECTOR', 'BOOLEAN_OPERATION', 'STAR', 'ELLIPSE'].includes(c.type) && (c.width || 99) <= 32);
+      if (looksIcon) {
+        const cleaned = nm.replace(/^icons?\/?/, '').trim();
+        if (cleaned) { found = cleaned; return; }
+      }
+      walk(c);
+    }
+  })(tab);
+  return kebab(found || label);
+}
+
 function actionFromReactions(node) {
   for (const reaction of node.reactions || []) {
     const action = reaction.action;
@@ -273,9 +308,14 @@ function convertNode(node, topLevel, parentBox) {
     if (label) out.props.label = label;
   }
   if (dcType === 'TabBar' && 'children' in node) {
-    out.props.tabs = node.children.map((child) => {
+    out.props.tabs = tabNodesOf(node).map((child, i) => {
       const label = readableLabel(firstText(child), child.name).split('/').pop().trim();
-      return { id: kebab(label), icon: kebab(label), label: label, route: '/' + kebab(label) };
+      const tab = { id: kebab(label), icon: tabIcon(child, label), label: label,
+                    route: i === 0 ? '/' : '/' + kebab(label) };
+      // convenzione: il primo tab e' la home (route index); un tab "search"
+      // diventa il tab di ricerca nativo iOS (NativeTabs role="search")
+      if (/search|cerca/i.test(label) || /search/.test(tab.icon)) tab.role = 'search';
+      return tab;
     });
     out.semantics = { navigation_role: 'root_tabs' };
   }
@@ -517,7 +557,7 @@ async function renderNode(node, parent, isRoot) {
     // fedelta': se l'istanza TabBar sorgente esiste ancora, clona i suoi tab
     // (icone vere); altrimenti celle ricostruite con icona placeholder
     const srcBar = (node.meta || {}).figma_node_id ? figma.getNodeById((node.meta || {}).figma_node_id) : null;
-    const srcTabs = srcBar && 'children' in srcBar ? srcBar.children.filter((c) => c.visible !== false) : [];
+    const srcTabs = srcBar && 'children' in srcBar ? tabNodesOf(srcBar) : [];
     if (srcTabs.length > 0 && srcTabs.length === (props.tabs || []).length) {
       for (const st of srcTabs) {
         const copy = st.clone();

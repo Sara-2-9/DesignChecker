@@ -218,3 +218,54 @@ class TestCodegenGeometry(unittest.TestCase):
         self.assertIn('"colors":', ts)
         self.assertNotIn('"color":', ts)
         self.assertIn('"surface-raised": "#FFFFFF"', ts)
+
+
+class TestCodegenTabBar(unittest.TestCase):
+    """D33: Native Tabs deve sempre includere la route index e icone valide."""
+
+    def _codegen(self, tabs):
+        screen = {
+            "schema_version": "0.1",
+            "meta": {"id": "tabs-test", "name": "Tabs", "route": "/"},
+            "root": {
+                "id": "main", "type": "Screen", "layout": {}, "style": {},
+                "children": [{"id": "bar", "type": "TabBar",
+                              "props": {"tabs": tabs}, "layout": {}, "style": {}}],
+            },
+        }
+        tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        catalog = load_catalog(ROOT / "components.catalog.yaml")
+        return Codegen(screen, tokens, catalog)
+
+    def test_trigger_index_sempre_presente(self):
+        # tab "sporchi" dai figli dell'istanza Figma: nessuno con route "/"
+        cg = self._codegen([
+            {"id": "tab-bar-buttons", "icon": "tab-bar-buttons",
+             "label": "Tab Bar Buttons", "route": "/tab-bar-buttons"},
+            {"id": "search", "icon": "search", "label": "Search", "route": "/search"},
+        ])
+        layout = cg.layout_tsx()
+        self.assertIn('name="index"', layout)
+        # nome icona non valido come SF Symbol -> fallback
+        self.assertNotIn('sf="tab.bar.buttons"', layout)
+
+    def test_icone_mappate_e_ruolo_search(self):
+        cg = self._codegen([
+            {"id": "home", "icon": "home", "label": "Home", "route": "/"},
+            {"id": "apps", "icon": "apps", "label": "Apps", "route": "/apps"},
+            {"id": "search", "icon": "search", "label": "Search",
+             "route": "/search", "role": "search"},
+        ])
+        layout = cg.layout_tsx()
+        self.assertIn('sf="house"', layout)
+        self.assertIn('sf="square.grid.2x2"', layout)
+        self.assertIn('name="search" role="search"', layout)
+
+    def test_route_stub_per_tab_senza_schermata(self):
+        cg = self._codegen([
+            {"id": "home", "icon": "home", "label": "Home", "route": "/"},
+            {"id": "apps", "icon": "apps", "label": "Apps", "route": "/apps"},
+        ])
+        files = cg.project_files()
+        self.assertIn("src/app/apps.tsx", files)
+        self.assertIn("export default function AppsRoute()", files["src/app/apps.tsx"])
