@@ -269,3 +269,32 @@ class TestCodegenTabBar(unittest.TestCase):
         files = cg.project_files()
         self.assertIn("src/app/apps.tsx", files)
         self.assertIn("export default function AppsRoute()", files["src/app/apps.tsx"])
+
+
+class TestCodegenImagePlaceholder(unittest.TestCase):
+    """D33: le immagini non portano i byte da Figma — placeholder View,
+    mai <Image source={{uri:''}}> (box nero + warning RN nel simulatore)."""
+
+    def test_immagine_e_placeholder_view(self):
+        screen = {
+            "schema_version": "0.1",
+            "meta": {"id": "img-test", "name": "Img", "route": "/"},
+            "root": {
+                "id": "main", "type": "Screen",
+                "layout": {"frame": {"x": 0, "y": 0, "w": 402, "h": 874}},
+                "style": {}, "children": [
+                    {"id": "flame", "type": "Image",
+                     "props": {"source": "flame.png", "alt": "Fiamma"},
+                     "layout": {"frame": {"x": 10, "y": 20, "w": 60, "h": 60}},
+                     "style": {}},
+                ],
+            },
+        }
+        tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        catalog = load_catalog(ROOT / "components.catalog.yaml")
+        _, _, content = Codegen(screen, tokens, catalog).screen_tsx()
+        self.assertNotIn("uri: ''", content)
+        self.assertNotIn("<Image", content)
+        self.assertIn("{/* immagine: Fiamma (placeholder) */}", content)
+        self.assertIn("backgroundColor: theme.colors.neutral[200]", content)
+

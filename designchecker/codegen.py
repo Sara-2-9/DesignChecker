@@ -395,8 +395,17 @@ class Codegen:
         return self._indent(depth) + "{/* icona: " + str(name) + " */}"
 
     def _emit_image(self, node: dict, depth: int) -> str:
-        name = self._register_style(node)
-        return f"{self._indent(depth)}<Image style={{styles.{name}}} source={{{{ uri: '' }}}} />"
+        # I byte delle immagini non escono da Figma: un <Image> con uri vuoto
+        # renderizza un box nero + warning RN. Meglio un placeholder neutro.
+        layout = node.get("layout", {}) or {}
+        extra = {"backgroundColor": "theme.colors.neutral[200]",
+                 "borderRadius": "theme.radius.sm"}
+        if not layout.get("frame"):
+            extra.update({"width": "120", "height": "120"})
+        name = self._register_style(node, extra=extra)
+        alt = (node.get("props", {}) or {}).get("alt") or (node.get("props", {}) or {}).get("source") or node.get("id", "")
+        i = self._indent(depth)
+        return f"{i}{{/* immagine: {alt} (placeholder) */}}\n{i}<View style={{styles.{name}}} />"
 
     def _emit_generic(self, node: dict, depth: int) -> str:
         name = self._register_style(node)

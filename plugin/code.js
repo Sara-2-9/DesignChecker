@@ -163,10 +163,11 @@ function tabNodesOf(bar) {
     if (kids.length > 1 && !ownText) out.push(...kids);
     else out.push(c);
   }
-  return out;
+  // scarta i non-tab: sfondi/decorazioni senza testo ne' icona
+  return out.filter(isTabLike);
 }
 
-function tabIcon(tab, label) {
+function findIconName(tab) {
   // cerca un discendente il cui nome suggerisce l'icona ("icon/home", "house"…)
   let found = null;
   (function walk(n) {
@@ -183,7 +184,17 @@ function tabIcon(tab, label) {
       walk(c);
     }
   })(tab);
-  return kebab(found || label);
+  return found;
+}
+
+function isTabLike(n) {
+  // un tab vero ha un'etichetta o un'icona; i contenitori puramente
+  // decorativi (sfondi tipo "BG") non sono tab
+  return firstText(n) != null || findIconName(n) != null;
+}
+
+function tabIcon(tab, label) {
+  return kebab(findIconName(tab) || label);
 }
 
 function actionFromReactions(node) {
