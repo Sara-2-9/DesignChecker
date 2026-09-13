@@ -238,8 +238,13 @@ window.onmessage = async (event) => {
     lastMap = msg.map || {};
     try {
       await validateScreen(msg.screen, msg.assets);
-      if (msg.assets && msg.assets.length) {
-        $('status').textContent = $('status').textContent + ' · ' + msg.assets.length + ' immagini salvate';
+      // Diagnostica D34: quanti nodi immagine/icona trovati, quanti PNG esportati.
+      // Se manca assets_debug, il code.js in esecuzione e' una versione vecchia.
+      if (msg.assets_debug) {
+        $('status').textContent += ' · asset: ' + msg.assets_debug.sent + '/' + msg.assets_debug.found +
+          (msg.assets_debug.sent > 0 ? ' salvati' : ' — nessun PNG esportato');
+      } else {
+        $('status').textContent += ' · nessun asset nel messaggio: il code.js in esecuzione e\' vecchio, re-importa il plugin dal manifest';
       }
     } catch (e) {
       $('status').textContent = 'bridge irraggiungibile durante la validazione';

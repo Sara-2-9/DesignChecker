@@ -835,7 +835,8 @@ figma.ui.onmessage = async (msg) => {
     watchedNodeId = node.id;
     const screen = exportFrame(node);
     const assets = await collectAssets(screen.meta.id);
-    figma.ui.postMessage({ type: 'screen-exported', screen: screen, map: exportMap, assets: assets });
+    figma.ui.postMessage({ type: 'screen-exported', screen: screen, map: exportMap, assets: assets,
+                           assets_debug: { found: pendingAssets.length, sent: assets.length } });
   }
   if (msg.type === 'annotate') {
     exportMap = msg.map || exportMap;
