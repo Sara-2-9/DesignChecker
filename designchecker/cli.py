@@ -93,6 +93,9 @@ def main(argv: list[str] | None = None) -> None:
     p_serve.add_argument("--port", type=int, default=7357)
     p_serve.add_argument("--quiet", action="store_true",
                          help="Niente log delle attivita' (default: log visibile, D37)")
+    p_serve.add_argument("--verbose", action="store_true",
+                         help="Mostra nel log anche il PROMPT completo inviato "
+                              "all'AI e la RISPOSTA grezza, per ogni /review e /fix (D38)")
     p_serve.add_argument("--autogen", nargs="?", const="~/Desktop/dck-preview",
                          default=None, metavar="PATH",
                          help="Rigenera il progetto Expo a ogni export/fix (D36). "
@@ -185,7 +188,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "serve":
         from .serve import serve
-        serve(root, port=args.port, autogen=args.autogen, log=not args.quiet)
+        serve(root, port=args.port, autogen=args.autogen, log=not args.quiet,
+              verbose_ai=args.verbose)
         return
 
     if args.command == "trace":
@@ -271,6 +275,7 @@ def _trace_command(args, root: Path, rules) -> None:
     print("            riceve: JSON Patch → il VALIDATORE la approva o rifiuta")
     print("   chiavi  : ~/.designchecker/config.json (chmod 600, mai nel repo);")
     print("             escono solo verso il provider che hai scelto")
+    print("   ispeziona: `dck serve --verbose` mostra prompt e risposte completi (D38)")
 
     codegen = Codegen(screen, tokens, catalog, assets_dir=assets_dir)
     print("\n5. CODEGEN (Python deterministico, zero AI) — dck generate produce:")

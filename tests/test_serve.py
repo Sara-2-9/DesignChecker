@@ -455,3 +455,71 @@ class TestBridgeAI(unittest.TestCase):
         finally:
             Bridge._ai_provider = orig_provider
             ai_mod.chat = orig_chat
+
+
+class TestBridgeVerboseAI(unittest.TestCase):
+    """D38: --verbose mostra nel log il prompt completo e la risposta grezza."""
+
+    def _fake_provider(self):
+        from designchecker import ai
+        return ai.Provider("ollama", "Ollama", "A", "openai",
+                           "http://localhost:11434/v1"), "qwen3:8b"
+
+    def _run_review(self, verbose: bool) -> str:
+        import io
+        from contextlib import redirect_stdout
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        Bridge._ai_provider = lambda self: (p, model, {})
+        ai_mod.chat = lambda *a, **k: "PARERE-DEL-MODELLO: gerarchia ok."
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                screen = load_screen(ROOT / "examples" / "home.screen.json")
+                Bridge(ROOT, verbose_ai=verbose).ai_review(screen)
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat
+        return buf.getvalue()
+
+    def test_verbose_mostra_prompt_e_risposta(self):
+        out = self._run_review(verbose=True)
+        self.assertIn("PROMPT → AI [system]", out)
+        self.assertIn("PROMPT → AI [user]", out)
+        self.assertIn("RISPOSTA ← AI", out)
+        self.assertIn("PARERE-DEL-MODELLO", out)
+        self.assertIn("SCREEN JSON", out)  # il prompt contiene davvero lo screen
+
+    def test_default_non_mostra_prompt(self):
+        out = self._run_review(verbose=False)
+        self.assertIn("/review", out)          # la riga di riepilogo resta
+        self.assertNotIn("PROMPT → AI", out)   # ma niente dump completo
+        self.assertNotIn("PARERE-DEL-MODELLO", out)
+
+    def test_fix_verbose_mostra_patch_grezza(self):
+        import io
+        import json as _json
+        from contextlib import redirect_stdout
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        patch = [{"op": "replace", "path": "/root/style/background",
+                  "value": "token:color.bg.primary"}]
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        Bridge._ai_provider = lambda self: (p, model, {})
+        ai_mod.chat = lambda *a, **k: _json.dumps(patch)
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                screen = load_screen(ROOT / "examples" / "imported-home.screen.json")
+                result = Bridge(ROOT, verbose_ai=True).ai_fix(screen)
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat
+        out = buf.getvalue()
+        self.assertTrue(result.get("applied"), result.get("log"))
+        self.assertIn("PROMPT → AI [system]", out)
+        self.assertIn("RISPOSTA ← AI (patch grezza)", out)
+        self.assertIn("/root/style/background", out)  # la patch grezza e' nel log

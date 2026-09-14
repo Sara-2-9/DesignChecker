@@ -239,3 +239,20 @@ codegen, file usati/scritti.
    app.json, tsconfig, _layout).
 
 126 test OK.
+
+## D38 — Verbose AI: prompt e risposte completi nel log del bridge (2026-07)
+
+Richiesta: vedere ESATTAMENTE cosa viene inviato all'AI e cosa torna indietro.
+
+1. **`dck serve --verbose`** — per ogni /review e /fix il log mostra il PROMPT
+   completo (system + user, delimitati `┌─ … │ … └─` con conteggio caratteri/righe)
+   e la RISPOSTA grezza del modello, prima di qualsiasi parsing. Nel fix multi-
+   tentativo vengono stampati solo i messaggi NUOVI di ogni tentativo (il feedback
+   del validatore), non tutta la conversazione ripetuta.
+2. **Default invariato e leggibile** — senza `--verbose` il log resta il riepilogo
+   di una riga per evento (D37): il traffico AI completo e' lungo (decine di KB),
+   va mostrato solo a richiesta. Il banner di avvio suggerisce `--verbose`.
+3. **Punto di intercettazione unico** — il dump avviene nel wrapper di `chat_fn`
+   e in `ai_review`, cioe' nel bridge: patcher e provider restano invariati.
+
+129 test OK.

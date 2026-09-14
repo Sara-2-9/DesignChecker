@@ -38,10 +38,11 @@ class Bridge:
     """Logica degli endpoint, separata dal server (testabile senza rete)."""
 
     def __init__(self, root: Path, autogen: Path | None = None,
-                 log: bool = True):
+                 log: bool = True, verbose_ai: bool = False):
         self.root = root
         self.autogen = Path(autogen).expanduser() if autogen else None
         self.log_enabled = log
+        self.verbose_ai = verbose_ai
         self.rules = load_rules(root / "rules")
         self.catalog = load_catalog(root / "components.catalog.yaml")
         self.tokens = TokenStore(load_tokens(root / "examples" / "tokens.json"))
@@ -52,6 +53,18 @@ class Bridge:
         """Log live del bridge (D37): ogni azione visibile nel terminale."""
         if self.log_enabled:
             print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+    def _log_block(self, title: str, text: str) -> None:
+        """Blocco multi-riga nel log (D38): prompt e risposte AI completi.
+        Attivo solo con --verbose: il traffico AI e' lungo, il default
+        resta leggibile a colpo d'occhio."""
+        if not (self.log_enabled and self.verbose_ai):
+            return
+        lines = text.splitlines() or [""]
+        self._log(f"  ┌─ {title} ({len(text)} caratteri, {len(lines)} righe)")
+        for ln in lines:
+            print(f"  │ {ln}", flush=True)
+        print("  └─", flush=True)
 
     @staticmethod
     def _count_nodes(node: dict) -> int:
@@ -144,9 +157,12 @@ class Bridge:
         self._log(f"→ /review: {p.label} · {model} — mando screen JSON, "
                   f"{len(findings)} finding, regolamento completo"
                   f"{' + contesto utente' if context else ''}")
+        for m in messages:
+            self._log_block(f"PROMPT → AI [{m['role']}]", m["content"])
         t0 = time.monotonic()
         try:
             critique = _ai.chat(p, model, messages, config).strip()
+            self._log_block("RISPOSTA ← AI (parere)", critique)
             self._log(f"  ✓ parere ricevuto in {time.monotonic() - t0:.1f}s "
                       f"({len(critique)} caratteri) — nessuna scrittura, e' consultivo")
             return {"critique": critique}
@@ -169,8 +185,16 @@ class Bridge:
             return [f for f in fs if f.severity == "error"], \
                    [f for f in fs if f.severity == "warning"]
 
+        logged_count = [0]  # messaggi gia' stampati (la conversazione cresce a ogni tentativo)
+
         def chat_fn(messages):
-            return _ai.chat(p, model, messages, config)
+            if self.verbose_ai:
+                for m in messages[logged_count[0]:]:
+                    self._log_block(f"PROMPT → AI [{m['role']}]", m["content"])
+                logged_count[0] = len(messages)
+            raw = _ai.chat(p, model, messages, config)
+            self._log_block("RISPOSTA ← AI (patch grezza)", raw)
+            return raw
 
         self._log(f"→ /fix: {p.label} · {model} — il validatore fara' da "
                   f"gatekeeper sulla patch"
@@ -406,11 +430,11 @@ def make_handler(bridge: Bridge):
 
 
 def serve(root: Path, port: int = DEFAULT_PORT, autogen: Path | None = None,
-          log: bool = True) -> None:
+          log: bool = True, verbose_ai: bool = False) -> None:
     import socket
     import threading
 
-    bridge = Bridge(root, autogen=autogen, log=log)
+    bridge = Bridge(root, autogen=autogen, log=log, verbose_ai=verbose_ai)
     handler = make_handler(bridge)
 
     servers: list[ThreadingHTTPServer] = []
@@ -433,6 +457,12 @@ def serve(root: Path, port: int = DEFAULT_PORT, autogen: Path | None = None,
     if log:
         print("Log attivita' attivo: qui vedi ogni richiesta del plugin, "
               "cosa valida, cosa scrive, cosa manda all'AI (--quiet per spegnerlo)")
+    if verbose_ai:
+        print("Verbose AI attivo: vedrai il PROMPT completo inviato al modello "
+              "e la RISPOSTA grezza che torna, per ogni /review e /fix")
+    elif log:
+        print("  (vuoi vedere anche prompt e risposte AI completi? "
+              "riavvia con --verbose)")
     if autogen:
         print(f"Autogen attivo: ogni export/fix rigenera l'app in {bridge.autogen}")
         print("  (Metro attivo? l'app nel simulatore si aggiorna da sola. "
