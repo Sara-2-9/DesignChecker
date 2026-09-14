@@ -62,7 +62,8 @@ def node_size(node: dict, ctx: Context) -> float | None:
     props = node.get("props", {}) or {}
     for key in ("size", "min_height", "height"):
         if key in props:
-            val = dimension_to_float(ctx.tokens.resolve_value(props[key]))
+            val = dimension_to_float(ctx.tokens.resolve_value(props[key],
+                                                              ctx.theme))
             if val is not None:
                 return val
     defaults = ctx.entry(node).get("defaults", {}) or {}
@@ -80,7 +81,7 @@ def nearest_background(node: dict, ctx: Context) -> str | None:
     while current is not None:
         bg = (current.get("style", {}) or {}).get("background")
         if bg:
-            return ctx.tokens.resolve_value(bg)
+            return ctx.tokens.resolve_value(bg, ctx.theme)
         current = ctx.parents.get(id(current))
     return None
 
@@ -234,7 +235,7 @@ def check_contrast_min(node, rule, ctx):
     fg_raw = style.get("color") or style.get("foreground")
     if not fg_raw:
         return None
-    fg = ctx.tokens.resolve_value(fg_raw)
+    fg = ctx.tokens.resolve_value(fg_raw, ctx.theme)
     bg = nearest_background(node, ctx)
     ratio = contrast_ratio(fg, bg) if fg and bg else None
     if ratio is None:
@@ -298,7 +299,7 @@ def check_gap_min(node, rule, ctx):
     gap = (node.get("layout", {}) or {}).get("gap")
     if gap is None:
         return None
-    value = dimension_to_float(ctx.tokens.resolve_value(gap))
+    value = dimension_to_float(ctx.tokens.resolve_value(gap, ctx.theme))
     minimum = float(rule["params"]["min"])
     if value is not None and value < minimum:
         return [make_finding(rule, node.get("id", "?"),
@@ -336,7 +337,7 @@ def check_text_min_size(node, rule, ctx):
     variant = (node.get("props", {}) or {}).get("variant")
     if not variant:
         return None
-    size = ctx.tokens.resolve_path(f"typography.{variant}")
+    size = ctx.tokens.resolve_path(f"typography.{variant}", ctx.theme)
     size = dimension_to_float(size)
     minimum = float(rule["params"]["min"])
     if size is not None and size < minimum:

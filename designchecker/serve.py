@@ -28,7 +28,8 @@ from pathlib import Path
 
 from . import __version__
 from .loader import load_catalog, load_rules, load_tokens
-from .tokens import TokenStore, dimension_to_float
+from .tokens import (TokenStore, dimension_to_float, hex_to_token_map,
+                     is_themed, THEME_KEYS)
 from .validator import resolve_theme, rules_for_platform, validate
 
 DEFAULT_PORT = 7357
@@ -193,6 +194,10 @@ class Bridge:
         applicable = rules_for_platform(self.rules, platform)
         findings = validate(screen, self.rules, self.tokens, self.catalog,
                             platform=platform, theme=theme)
+        # catalogo path -> valore NEL TEMA ATTIVO: il modello vede i colori
+        # veri (dark su design dark) e non puo' vandalizzare l'identita' (D42)
+        token_values = {path: self.tokens.resolve_path(path, theme)
+                        for path in self.tokens.flat}
 
         def validate_fn(scr):
             fs = validate(scr, self.rules, self.tokens, self.catalog,
@@ -218,6 +223,7 @@ class Bridge:
         try:
             result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
                                       token_paths=list(self.tokens.flat),
+                                      token_values=token_values,
                                       context=context, rules=applicable,
                                       platform=platform, theme=theme)
         except Exception as e:
@@ -253,16 +259,19 @@ class Bridge:
         return self.catalog
 
     def tokens_payload(self) -> dict:
-        hex_to_token: dict[str, str] = {}
+        # hex -> token con tutte le varianti di tema (D42)
+        hex_to_token = hex_to_token_map(self.tokens)
         spacing: list[dict] = []
         flat: dict[str, object] = {}
         for path in self.tokens.flat:
-            value = self.tokens.resolve_path(path)
-            flat[path] = value
-            if isinstance(value, str) and value.startswith("#"):
-                hex_to_token[value.upper()] = path
+            raw = self.tokens.flat[path]
+            if is_themed(raw):
+                flat[path] = {t: self.tokens.resolve_path(path, t)
+                              for t in THEME_KEYS}
+            else:
+                flat[path] = self.tokens.resolve_path(path)
             if path.startswith("spacing."):
-                num = dimension_to_float(value)
+                num = dimension_to_float(self.tokens.resolve_path(path))
                 if num is not None:
                     spacing.append({"path": path, "value": num})
         return {"hex_to_token": hex_to_token, "spacing": spacing, "flat": flat}

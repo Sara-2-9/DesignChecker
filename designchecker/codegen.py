@@ -97,11 +97,13 @@ class Codegen:
     # ---------------------------------------------------------- theme.ts
 
     def _theme_tree(self) -> dict:
-        """Token DTCG -> albero con valori risolti (alias compresi).
+        """Token DTCG -> albero con valori risolti (alias compresi) NEL TEMA
+        dello screen (meta.theme): un design dark genera una theme.ts scura.
         Il gruppo 'color' diventa 'colors' per allinearsi a _ts_path."""
+        theme = (self.screen.get("meta", {}) or {}).get("theme", "light")
         out: dict = {}
         for path in self.tokens.flat:
-            value = self.tokens.resolve_path(path)
+            value = self.tokens.resolve_path(path, theme)
             parts = path.split(".")
             if parts[0] == "color":
                 parts[0] = "colors"

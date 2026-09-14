@@ -206,3 +206,29 @@ class TestThemeDetection(unittest.TestCase):
                                                  theme="light")}
         self.assertIn("ux.dark.pure-black", ids_dark)
         self.assertNotIn("ux.dark.pure-black", ids_light)
+
+
+class TestValidazioneNelTema(unittest.TestCase):
+    """D42: le regole risolvono i token NEL TEMA del design.
+    Testo bianco su {color.surface}: illeggibile in light (bianco su panna),
+    perfetto in dark (bianco su #121212). Il validatore deve saperlo."""
+
+    def _screen(self):
+        return {"schema_version": "0.1", "meta": {"id": "tema-val"},
+                "root": {"id": "r", "type": "Screen",
+                         "style": {"background": "{color.surface}"},
+                         "children": [{"id": "t", "type": "Text",
+                                       "props": {"variant": "body"},
+                                       "style": {"color": "#FFFFFF"}}]}}
+
+    def _contrast_errors(self, theme):
+        rules, catalog, tokens = _setup()
+        return [f for f in validate(self._screen(), rules, tokens, catalog,
+                                    theme=theme)
+                if f.rule_id == "wcag.1.4.3.contrast-text"]
+
+    def test_bianco_su_surface_chiara_violazione(self):
+        self.assertTrue(self._contrast_errors("light"))  # ~1:1, errore
+
+    def test_bianco_su_surface_scura_ok(self):
+        self.assertFalse(self._contrast_errors("dark"))  # ~17:1, nessun errore

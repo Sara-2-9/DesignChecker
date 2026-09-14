@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34) + **AI con regolamento completo e contesto opzionale** (D35) + **autogen dell'app a ogni export/fix** (`dck serve --autogen`, D36) + **osservabilità completa** (log live del bridge + `dck trace`, D37) + **prompt e risposte AI completi nel log** (`dck serve --verbose`, D38) + **selezione piattaforma iOS/Android/Custom** nel plugin, con la "quadra" cross-platform nel validatore e nell'AI (D39) + **tema dark/light rilevato automaticamente** (luminanza dello sfondo, StatusBar e AI calibrati — l'AI non diventa mai il validatore, D40) + **patch AI per id di nodo** (niente indici numerici, upsert automatico, timeout 300s, D41). 150 test OK. Decisioni D1–D41.
+🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34) + **AI con regolamento completo e contesto opzionale** (D35) + **autogen dell'app a ogni export/fix** (`dck serve --autogen`, D36) + **osservabilità completa** (log live del bridge + `dck trace`, D37) + **prompt e risposte AI completi nel log** (`dck serve --verbose`, D38) + **selezione piattaforma iOS/Android/Custom** nel plugin, con la "quadra" cross-platform nel validatore e nell'AI (D39) + **tema dark/light rilevato automaticamente** (luminanza dello sfondo, StatusBar e AI calibrati — l'AI non diventa mai il validatore, D40) + **patch AI per id di nodo** (niente indici numerici, upsert automatico, timeout 300s, D41) + **palette multi-tema** (token con varianti light/dark: un design dark viene tokenizzato su token scuri, il prompt AI vede i valori reali, identità cromatica inviolabile, D42). 164 test OK. Decisioni D1–D42.
 
 ### Installazione (una volta sola)
 
@@ -133,7 +133,7 @@ designchecker trace examples/home.screen.json   # 6 fasi: LETTURA → VALIDAZION
 ├── rules/             ← 6 file: ios-hig, material3, wcag, design-system, expo-rn, ux-heuristics
 ├── components.catalog.yaml
 ├── examples/          ← tokens.json, schermate di esempio, generated-app/ (progetto Expo)
-├── tests/             ← 150 test (validatore + codegen + importer + bridge + AI + log/trace + piattaforme + tema + patch per id)
+├── tests/             ← 164 test (validatore + codegen + importer + bridge + AI + log/trace + piattaforme + tema + patch per id + token multi-tema)
 └── docs/              ← la progettazione completa
 ```
 

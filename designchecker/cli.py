@@ -712,7 +712,13 @@ def _ai_screen_command(args, root: Path, rules) -> None:
     tokens = TokenStore(load_tokens(args.tokens or (root / "examples" / "tokens.json")))
     catalog = load_catalog(args.catalog or (root / "components.catalog.yaml"))
     platform = args.platform or (screen.get("meta", {}) or {}).get("platform") or "both"
-    findings = validate(screen, rules, tokens, catalog, platform=platform)
+    from .validator import resolve_theme
+    theme = resolve_theme(screen, tokens)
+    findings = validate(screen, rules, tokens, catalog,
+                        platform=platform, theme=theme)
+    # catalogo path -> valore nel tema attivo per il prompt di fix (D42)
+    token_values = {path: tokens.resolve_path(path, theme)
+                    for path in tokens.flat}
 
     def chat_fn(messages):
         return _ai.chat(p, model, messages, config)
@@ -723,7 +729,7 @@ def _ai_screen_command(args, root: Path, rules) -> None:
         print(f"── Valutazione AI ({p.label} · {model} · {platform}) di '{name}' ──\n")
         messages = patcher.build_review_prompt(screen, findings,
                                                context=args.context, rules=rules,
-                                               platform=platform)
+                                               platform=platform, theme=theme)
         try:
             print(chat_fn(messages).strip())
         except Exception as e:
@@ -736,14 +742,16 @@ def _ai_screen_command(args, root: Path, rules) -> None:
     print(f"── Fix AI ({p.label} · {model} · {platform}) su '{name}' ──")
 
     def validate_fn(scr):
-        fs = validate(scr, rules, tokens, catalog, platform=platform)
+        fs = validate(scr, rules, tokens, catalog,
+                      platform=platform, theme=theme)
         return [f for f in fs if f.severity == "error"], \
                [f for f in fs if f.severity == "warning"]
 
     result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
                               token_paths=list(tokens.flat),
+                              token_values=token_values,
                               context=args.context, rules=rules,
-                              platform=platform)
+                              platform=platform, theme=theme)
     for line in result["log"]:
         print(f"  {line}")
     if result["applied"]:

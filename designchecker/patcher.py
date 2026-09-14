@@ -264,13 +264,32 @@ def _theme_block(theme: str | None) -> str:
     return lines.get(theme or "", "")
 
 
+def _token_catalog_block(token_paths: list | None,
+                         token_values: dict | None,
+                         theme: str | None) -> str:
+    """Sezione TOKEN DISPONIBILI. Con token_values (path -> valore risolto nel
+    tema attivo) il modello VEDE i colori reali e puo' scegliere il token
+    cromaticamente equivalente invece di indovinare dal nome."""
+    if token_values:
+        label = (f"TOKEN DISPONIBILI (path → valore nel tema "
+                 f"{theme or 'attivo'}; unici path validi per i riferimenti "
+                 f"{{...}}):")
+        lines = "\n".join(f"- {p} → {token_values[p]}" for p in token_values)
+        return f"{label}\n{lines}"
+    return (f"TOKEN DISPONIBILI (unici path validi per i riferimenti {{...}}):\n"
+            f"{json.dumps(token_paths or [], ensure_ascii=False)}")
+
+
 def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = None,
                      context: str | None = None, rules: list[dict] | None = None,
                      platform: str | None = None,
-                     theme: str | None = None) -> list:
+                     theme: str | None = None,
+                     token_values: dict | None = None) -> list:
     """Messaggi per la patch: schema minimo, findings, nodi coinvolti.
     token_paths: i path dei token REALMENTE disponibili (TokenStore.flat) —
-    senza, il modello indovinerebbe nomi inesistenti."""
+    senza, il modello indovinerebbe nomi inesistenti.
+    token_values: path -> valore risolto nel tema attivo (es. dark): il modello
+    vede i colori veri e non puo' mappare un design scuro su token chiari."""
     idx = _nodes_index(screen)
     involved = {}
     for f in findings:
@@ -303,6 +322,15 @@ def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = No
         "Regole:\n"
         "- Correggi SOLO le violazioni elencate, non riprogettare.\n"
         "- Non cambiare gli id dei nodi, non rimuovere nodi interi.\n"
+        "- IDENTITA' CROMATICA INVIOLABILE: non cambiare MAI il tema del "
+        "design (dark resta dark, light resta light) ne' il colore di brand. "
+        "Sostituisci un hex con un token SOLO se il valore del token (vedi "
+        "lista) e' cromaticamente equivalente all'hex originale. Se nessun "
+        "token e' equivalente, MANTIENI l'hex originale e segnalalo aggiungendo "
+        "un campo \"note\" all'operazione (es. \"palette-gap: serve un token "
+        "dark per questo colore\"): la violazione restera' aperta, ed e' il "
+        "comportamento corretto — meglio un hex segnalato che un colore "
+        "sbagliato.\n"
         "- Per colori/spaziature usa SOLO token dalla lista TOKEN DISPONIBILI; "
         "se nessun token e' adatto, usa un valore concreto leggibile "
         "(es. hex) invece di inventare un riferimento.\n"
@@ -316,8 +344,7 @@ def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = No
         + _context_block(context) + "\n"
         f"REGOLAMENTO COMPLETO DEL VALIDATORE (la patch deve rispettare TUTTE "
         f"queste regole, non solo le violazioni trovate):\n{rules_summary(rules)}\n\n"
-        f"TOKEN DISPONIBILI (unici path validi per i riferimenti {{...}}):\n"
-        f"{json.dumps(token_paths or [], ensure_ascii=False)}\n\n"
+        + _token_catalog_block(token_paths, token_values, theme) + "\n\n"
         f"NODI COINVOLTI:\n{json.dumps(involved, ensure_ascii=False, indent=1)}\n\n"
         f"SCREEN JSON COMPLETO:\n{json.dumps(screen, ensure_ascii=False)}"
     )
@@ -363,7 +390,8 @@ def build_review_prompt(screen: dict, findings: list, context: str | None = None
 def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
              max_attempts: int = MAX_ATTEMPTS, token_paths: list | None = None,
              context: str | None = None, rules: list[dict] | None = None,
-             platform: str | None = None, theme: str | None = None) -> dict:
+             platform: str | None = None, theme: str | None = None,
+             token_values: dict | None = None) -> dict:
     """Tenta la correzione automatica.
 
     validate_fn(screen_dict) -> (errors: list, warnings: list)
@@ -382,7 +410,8 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
 
     messages = build_fix_prompt(screen, findings, token_paths,
                                 context=context, rules=rules,
-                                platform=platform, theme=theme)
+                                platform=platform, theme=theme,
+                                token_values=token_values)
     for attempt in range(1, max_attempts + 1):
         log.append(f"Tentativo {attempt}/{max_attempts}: richiesta patch al modello…")
         try:

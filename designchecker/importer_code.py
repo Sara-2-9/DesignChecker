@@ -25,7 +25,7 @@ import subprocess
 from pathlib import Path
 
 from .codegen import kebab
-from .tokens import TokenStore
+from .tokens import TokenStore, hex_to_token_map
 
 RN_MAP = {
     "View": ("Stack", 0.9),
@@ -105,12 +105,8 @@ class CodeImporter:
         self.counter = 0
         self._components: dict[str, dict | None] = {}  # cache file componenti
         self._loading: set[str] = set()                # guardia anti-cicli
-        # mappa inversa hex -> token (come importer Figma)
-        self.hex_to_token: dict[str, str] = {}
-        for path in tokens.flat:
-            value = tokens.resolve_path(path)
-            if isinstance(value, str) and value.startswith("#"):
-                self.hex_to_token[value.upper()] = path
+        # mappa inversa hex -> token, tutte le varianti di tema (D42)
+        self.hex_to_token: dict[str, str] = hex_to_token_map(tokens)
 
     # ---------------------------------------------------- import tra file
 

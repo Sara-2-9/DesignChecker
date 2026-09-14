@@ -342,3 +342,47 @@ indici numerici (/root/children/0/children/5/...) e SBAGLIA gli indici →
    piu' piccole o fix mirati, non timeout stretti.)
 
 150 test OK.
+
+## D42 — Palette multi-tema + identita' cromatica inviolabile (2026-09)
+
+Sintomo reale (screenshot di Sara): specificato iOS + Dark, il fix e' stato
+ACCETTATO (25→9 errori) ma ha trasformato il design scuro in un mockup
+chiaro: #000000 → {color.surface} (panna #F7F7F5), brand blu #0088FF →
+{color.brand.primary} (verde salvia #5E8F6E). Analisi: il catch-22 —
+(a) hex hard-coded = errore; (b) il gatekeeper accetta solo patch che
+riducono gli errori; (c) la palette era SOLO light → l'AI era costretta a
+"vandalizzare" il design per far passare la patch. Nessuna regola misurava
+la fedelta' cromatica. Cure scelte da Sara: A + E (escluse: guard rail di
+fedelta' nel gatekeeper, ricalibrazione della regola hex, fix del
+pure-black sugli sfondi effettivi).
+
+**A — Palette multi-tema nei token (la cura vera).** Un $value puo' ora
+essere {"light": ..., "dark": ...} (varianti anche alias). Il PATH resta
+unico — {color.surface} e' il token giusto su entrambi i temi, e' il valore
+a cambiare: surface #F7F7F5/#121212, surface-raised #FFFFFF/#1C1C1E,
+text-primary #1A1A1A/#F2F2F2, text-secondary #5A5A5A/#A3A3A8, nuovi
+neutral.700/800/900. Il brand resta invariante (il brand e' il brand).
+Conseguenze a catena, tutte deterministiche:
+1. TokenStore.resolve_path/resolve_value accettano theme= (cache per tema).
+2. Il validatore risolve i colori NEL tema del design (ctx.theme): il
+   contrasto di #FFFFFF su {color.surface} e' errore in light (~1:1) e ok
+   in dark (~17:1) — stesso JSON, verdetto giusto per il tema.
+3. hex_to_token_map() copre TUTTE le varianti: in import #121212 diventa
+   {color.surface}, non un hex nudo. A parita' di hex vince il token
+   semantico (dichiarato prima dei primitivi).
+4. codegen theme_ts() emette i valori del tema dello screen: un design
+   dark genera una theme.ts scura.
+5. Il prompt di fix elenca i token come "path → valore nel tema attivo":
+   il modello VEDE i colori veri (dark su design dark) invece di indovinare
+   dal nome. serve e cli costruiscono il catalogo con resolve_path(p, theme).
+
+**E — Istruzione di identita' cromatica nel system prompt.** "IDENTITA'
+CROMATICA INVIOLABILE: dark resta dark, il brand resta il brand. Sostituisci
+un hex con un token SOLO se cromaticamente equivalente; se nessun token e'
+equivalente, MANTIENI l'hex e segnalalo con note "palette-gap": la
+violazione resta aperta, ed e' il comportamento corretto." Il gatekeeper
+resta comparativo: una patch che mantiene un hex passa se riduce le ALTRE
+violazioni. (normalize_ops ignora il campo "note": e' solo comunicazione
+all'utente nel log.)
+
+164 test OK.

@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 
 from .codegen import kebab
-from .tokens import TokenStore, dimension_to_float
+from .tokens import TokenStore, dimension_to_float, hex_to_token_map
 
 ALIASES = {
     "tabbar": "TabBar", "navbar": "TabBar", "navigationbar": "TabBar",
@@ -96,12 +96,9 @@ class FigmaImporter:
         self.tokens = tokens
         self.catalog = catalog
         self.id_to_name: dict[str, str] = {}
-        # mappa inversa: hex -> path token (per riconoscere i colori gia' tokenizzabili)
-        self.hex_to_token: dict[str, str] = {}
-        for path in tokens.flat:
-            value = tokens.resolve_path(path)
-            if isinstance(value, str) and value.startswith("#"):
-                self.hex_to_token[value.upper()] = path
+        # mappa inversa: hex -> path token, tutte le varianti di tema (D42)
+        # (per riconoscere i colori gia' tokenizzabili, light E dark)
+        self.hex_to_token: dict[str, str] = hex_to_token_map(tokens)
 
     # ------------------------------------------------------------ utilities
 

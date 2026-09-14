@@ -356,6 +356,53 @@ class TestPromptTemaEPiattaforma(unittest.TestCase):
         self.assertNotIn("PIATTAFORMA:", msgs[0]["content"])
 
 
+class TestPromptIdentitaCromatica(unittest.TestCase):
+    """D42: il prompt di fix mostra i VALORI dei token nel tema attivo
+    e impone di non cambiare mai l'identita' cromatica del design."""
+
+    def _screen(self):
+        return {"schema_version": "0.1", "meta": {"id": "s"},
+                "root": {"id": "r", "type": "Screen",
+                         "style": {"background": "#000000"}, "children": []}}
+
+    def _dark_values(self):
+        from designchecker.loader import load_tokens
+        from designchecker.tokens import TokenStore
+        from pathlib import Path
+        root = Path(__file__).resolve().parent.parent
+        tokens = TokenStore(load_tokens(root / "examples" / "tokens.json"))
+        return {p: tokens.resolve_path(p, "dark") for p in tokens.flat}
+
+    def test_lista_token_con_valori_del_tema(self):
+        from designchecker.patcher import build_fix_prompt
+        msgs = build_fix_prompt(self._screen(), [finding(node_id="r")],
+                                theme="dark", token_values=self._dark_values())
+        user = msgs[1]["content"]
+        # il modello VEDE che color.surface in dark vale #121212:
+        # non puo' piu' mappare #000000 su un token panna
+        self.assertIn("color.surface → #121212", user)
+        self.assertIn("color.surface-raised → #1C1C1E", user)
+        self.assertIn("color.brand.primary → #5E8F6E", user)  # brand invariato
+
+    def test_istruzione_identita_cromatica(self):
+        from designchecker.patcher import build_fix_prompt
+        msgs = build_fix_prompt(self._screen(), [finding(node_id="r")],
+                                theme="dark", token_values=self._dark_values())
+        system = msgs[0]["content"]
+        self.assertIn("IDENTITA' CROMATICA INVIOLABILE", system)
+        self.assertIn("dark resta dark", system)
+        self.assertIn("MANTIENI l'hex originale", system)
+        self.assertIn("palette-gap", system)
+
+    def test_senza_valori_fallback_soli_path(self):
+        from designchecker.patcher import build_fix_prompt
+        msgs = build_fix_prompt(self._screen(), [finding(node_id="r")],
+                                token_paths=["color.surface"])
+        user = msgs[1]["content"]
+        self.assertIn('"color.surface"', user)  # vecchio formato JSON
+        self.assertNotIn("→", user)
+
+
 class TestPatchPerIdNodo(unittest.TestCase):
     """D41: il modello indirizza le patch per ID di nodo, non per indici."""
 

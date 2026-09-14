@@ -5,6 +5,11 @@ I token vivono in tokens.json con la struttura DTCG:
 
 Nei nodi dello screen JSON si referenziano come "{color.brand.primary}".
 Gli alias (un token il cui $value e' a sua volta "{altro.token}") vengono risolti.
+
+Multi-tema (D42): un $value puo' essere un oggetto {"light": ..., "dark": ...}
+con varianti (anche alias). La risoluzione con theme="dark"|"light" sceglie la
+variante giusta; senza tema si usa 'light'. Il path del token resta unico:
+lo stesso "{color.surface}" vale chiaro su design light e scuro su design dark.
 """
 from __future__ import annotations
 
@@ -13,6 +18,20 @@ import re
 ALIAS_RE = re.compile(r"^\{\s*([A-Za-z0-9_.-]+)\s*\}$")
 HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 DIM_RE = re.compile(r"^(-?\d+(?:\.\d+)?)")
+
+THEME_KEYS = ("light", "dark")
+
+
+def is_themed(value) -> bool:
+    """True se il $value e' multi-tema: {"light": ..., "dark": ...}."""
+    return isinstance(value, dict) and any(k in value for k in THEME_KEYS)
+
+
+def themed_variants(value) -> list:
+    """Tutti i valori per-tema di un $value (semplice o multi-tema)."""
+    if is_themed(value):
+        return [v for k, v in value.items() if k in THEME_KEYS]
+    return [value]
 
 
 def flatten(data: dict, prefix: str = "", out: dict | None = None) -> dict:
@@ -42,17 +61,28 @@ class TokenStore:
     def has_group(self, prefix: str) -> bool:
         return any(p == prefix or p.startswith(prefix + ".") for p in self.flat)
 
-    def resolve_path(self, path: str):
-        """Risolve un path token seguendo gli alias. None se inesistente."""
-        if path in self._resolved:
-            return self._resolved[path]
+    def resolve_path(self, path: str, theme: str | None = None):
+        """Risolve un path token seguendo gli alias. None se inesistente.
+
+        Se il token e' multi-tema ({"light": ..., "dark": ...}) e `theme` e'
+        dato, ritorna la variante di quel tema; senza tema, la variante
+        'light' (fallback: la prima disponibile)."""
+        key = (path, theme)
+        if key in self._resolved:
+            return self._resolved[key]
         if path not in self.flat:
             return None
         value = self.flat[path]
         m = ALIAS_RE.match(str(value))
         if m:
-            value = self.resolve_path(m.group(1))
-        self._resolved[path] = value
+            value = self.resolve_path(m.group(1), theme)
+        if is_themed(value):
+            variant = value.get(theme or "light")
+            if variant is None:
+                variant = value.get("light") or next(iter(value.values()))
+            m = ALIAS_RE.match(str(variant))
+            value = self.resolve_path(m.group(1), theme) if m else variant
+        self._resolved[key] = value
         return value
 
     @staticmethod
@@ -64,10 +94,24 @@ class TokenStore:
         m = ALIAS_RE.match(value) if isinstance(value, str) else None
         return m.group(1) if m else None
 
-    def resolve_value(self, value):
-        """Se value e' un riferimento "{a.b}" ritorna il valore risolto, altrimenti value stesso."""
+    def resolve_value(self, value, theme: str | None = None):
+        """Se value e' un riferimento "{a.b}" ritorna il valore risolto
+        (nella variante del tema, se multi-tema), altrimenti value stesso."""
         path = self.ref_path(value) if isinstance(value, str) else None
-        return self.resolve_path(path) if path else value
+        return self.resolve_path(path, theme) if path else value
+
+
+def hex_to_token_map(store: "TokenStore") -> dict:
+    """Mappa inversa HEX -> path token, includendo TUTTE le varianti di tema:
+    sia #F7F7F5 che #121212 puntano a 'color.surface'. A parita' di hex vince
+    il path dichiarato prima nel file (i token semantici precedono i primitivi)."""
+    out: dict[str, str] = {}
+    for path in store.flat:
+        for theme in THEME_KEYS:
+            value = store.resolve_path(path, theme)
+            if isinstance(value, str) and value.startswith("#"):
+                out.setdefault(value.upper(), path)
+    return out
 
 
 def dimension_to_float(value) -> float | None:

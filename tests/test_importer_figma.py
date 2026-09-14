@@ -127,5 +127,22 @@ class TestExportEdgeCases(unittest.TestCase):
         self.assertTrue(all(t["id"] for t in out["props"]["tabs"]))
 
 
+class TestImportColoriDark(unittest.TestCase):
+    """D42: gli hex scuri del canvas vengono tokenizzati sulle varianti dark."""
+
+    def test_hex_scuro_mappa_sul_token_semantico(self):
+        tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        catalog = load_catalog(ROOT / "components.catalog.yaml")
+        importer = FigmaImporter(tokens, catalog)
+        # #121212 e' la variante dark di color.surface: in import diventa ref
+        self.assertEqual(importer.hex_to_token.get("#121212"), "color.surface")
+        self.assertEqual(importer.hex_to_token.get("#1C1C1E"),
+                         "color.surface-raised")
+        # e _token_or_value lo usa davvero
+        self.assertEqual(importer._token_or_value("#121212"), "{color.surface}")
+        # un colore fuori palette resta hex nudo (e il validatore lo segnala)
+        self.assertEqual(importer._token_or_value("#0088FF"), "#0088FF")
+
+
 if __name__ == "__main__":
     unittest.main()

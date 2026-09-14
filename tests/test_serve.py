@@ -441,6 +441,42 @@ class TestBridgeAI(unittest.TestCase):
             Bridge._ai_provider = orig_provider
             ai_mod.chat = orig_chat
 
+    def test_fix_prompt_dark_mostra_valori_scuri(self):
+        """D42: su uno screen dark il prompt elenca i token coi valori DARK
+        (color.surface → #121212), cosi' il modello non puo' scambiare
+        il nero per il panna chiaro."""
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        captured: list = []
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        Bridge._ai_provider = lambda self: (p, model, {})
+
+        def fake_chat(*a, **k):
+            if len(a) >= 3:
+                captured.append(a[2])
+            return "questa non e' una patch"  # patch invalida: nessuna scrittura
+
+        ai_mod.chat = fake_chat
+        try:
+            screen = {"schema_version": "0.1",
+                      "meta": {"id": "t", "theme": "dark"},
+                      "root": {"id": "r", "type": "Screen",
+                               "style": {"background": "#000000"},
+                               "children": [{"id": "t1", "type": "Text",
+                                             "style": {"color": "#FF0000"}}]}}
+            self.bridge.ai_fix(screen)
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat
+        self.assertTrue(captured, "il modello non e' mai stato chiamato")
+        user_msg = next(m["content"] for m in captured[0] if m["role"] == "user")
+        self.assertIn("color.surface → #121212", user_msg)
+        self.assertNotIn("color.surface → #F7F7F5", user_msg)
+        system_msg = next(m["content"] for m in captured[0]
+                          if m["role"] == "system")
+        self.assertIn("IDENTITA' CROMATICA INVIOLABILE", system_msg)
+
     def test_review_ritorna_testo(self):
         import designchecker.ai as ai_mod
         p, model = self._fake_provider()

@@ -396,3 +396,15 @@ class TestCodegenTheme(unittest.TestCase):
         _, _, content = codegen.screen_tsx()
         self.assertIn('<StatusBar style="dark" />', content)
         self.assertIn('"userInterfaceStyle": "light"', codegen.app_json())
+
+    def test_theme_ts_risolta_nel_tema_dello_screen(self):
+        """D42: un design dark genera una theme.ts con i valori scuri."""
+        tokens, catalog = self._tokens_catalog()
+        dark_ts = Codegen(self._screen("dark"), tokens, catalog).theme_ts()
+        light_ts = Codegen(self._screen("light"), tokens, catalog).theme_ts()
+        self.assertIn('"surface": "#121212"', dark_ts)
+        self.assertIn('"surface-raised": "#1C1C1E"', dark_ts)
+        self.assertIn('"surface": "#F7F7F5"', light_ts)
+        # il brand non cambia mai tema
+        self.assertIn('"primary": "#5E8F6E"', dark_ts)
+        self.assertIn('"primary": "#5E8F6E"', light_ts)
