@@ -531,6 +531,9 @@ const styles = StyleSheet.create({{
             name = "index" if route == "/" else kebab(route.strip("/"))
             icon = kebab(str(tab.get("icon", "circle")))
             sf = SF_ICON_MAP.get(icon, "circle")
+            # il tab di ricerca nativo usa sempre la lente di sistema
+            if tab.get("role") == "search":
+                sf = "magnifyingglass"
             specs.append({
                 "name": name, "label": str(tab.get("label") or name),
                 "sf": sf, "md": ICON_MD_MAP.get(sf, "circle"),

@@ -141,10 +141,16 @@ function readableLabel(raw, fallback) {
   return text;
 }
 
+function isIconFontGlyph(s) {
+  // glifi di icon-font (es. Material Icons come caratteri PUA): non sono etichette
+  const t = (s || '').trim();
+  return t.length > 0 && t.length <= 4 && PUA.test(t);
+}
+
 function firstText(node) {
   if (!('children' in node)) return null;
   for (const child of node.children) {
-    if (child.type === 'TEXT') return child.characters;
+    if (child.type === 'TEXT' && !isIconFontGlyph(child.characters)) return child.characters;
     const found = firstText(child);
     if (found) return found;
   }
