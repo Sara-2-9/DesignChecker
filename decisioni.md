@@ -320,3 +320,25 @@ giudizio: review consultiva e proposte di patch, sempre sotto validazione.
 6. **CLI** — `dck validate --theme auto|light|dark`; `dck trace` mostra il tema.
 
 145 test OK.
+
+## D41 — Patch per id di nodo (addio indici numerici) + timeout realistico (2026-07)
+
+Sintomo reale (log verbose di Sara): il modello risponde con patch RFC 6902 a
+indici numerici (/root/children/0/children/5/...) e SBAGLIA gli indici →
+"replace: chiave inesistente"; al secondo tentativo il provider va in timeout
+(120s troppo pochi per prompt da 25+ KB).
+
+1. **Dialetto semplificato** — il prompt del fix ora chiede operazioni
+   {op, node, key, value}: il modello indirizza per ID di nodo (che vede nei
+   NODI COINVOLTI), MAI per indici. `normalize_ops()` traduce qui, in modo
+   deterministico, id → JSON Pointer reale. La forma RFC 6902 con "path"
+   resta accettata (retrocompatibile).
+2. **Upsert** — replace/add su chiave di nodo diventano RFC "add" con
+   auto-vivificazione dei dizionari intermedi (style/background su nodo senza
+   style funziona). Sparisce tutta la classe d'errore "chiave inesistente".
+   Il gatekeeper resta il validatore: la patch si applica solo se migliora.
+3. **Timeout** — CHAT_TIMEOUT 120s → 300s: i modelli "for coding" su schermate
+   grandi impiegano minuti. (Il modo giusto di ridurre il tempo resta schermate
+   piu' piccole o fix mirati, non timeout stretti.)
+
+150 test OK.

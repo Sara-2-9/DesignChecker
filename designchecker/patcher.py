@@ -36,7 +36,7 @@ def _split(pointer: str) -> list[str]:
     return [_unescape(t) for t in pointer.split("/")[1:]]
 
 
-def _parent_of(doc, tokens: list):
+def _parent_of(doc, tokens: list, create: bool = False):
     node = doc
     for t in tokens[:-1]:
         if isinstance(node, list):
@@ -45,7 +45,12 @@ def _parent_of(doc, tokens: list):
             node = node[int(t)]
         elif isinstance(node, dict):
             if t not in node:
-                raise PatchError(f"chiave mancante: {t!r}")
+                # upsert (D41): 'add' crea i dizionari intermedi mancanti
+                # (es. style/background su un nodo senza 'style')
+                if create:
+                    node[t] = {}
+                else:
+                    raise PatchError(f"chiave mancante: {t!r}")
             node = node[t]
         else:
             raise PatchError(f"il path attraversa un valore scalare: {t!r}")
@@ -64,7 +69,7 @@ def apply_patch(doc: dict, ops: list) -> dict:
             raise PatchError(f"operazione {i} malformata: {op!r}")
         kind, path = op["op"], op["path"]
         tokens = _split(path)
-        parent, last = _parent_of(out, tokens)
+        parent, last = _parent_of(out, tokens, create=(kind == "add"))
         if kind == "remove":
             if isinstance(parent, list):
                 if not last.isdigit() or int(last) >= len(parent):
@@ -99,6 +104,70 @@ def apply_patch(doc: dict, ops: list) -> dict:
                 raise PatchError(f"{kind}: il parent non e' un contenitore {path}")
         else:
             raise PatchError(f"operazione non supportata: {kind!r} (solo add/remove/replace)")
+    return out
+
+
+# ── Patch indirizzata per id di nodo (D41) ───────────────────────────
+
+def _node_paths(screen: dict) -> dict[str, str]:
+    """Mappa id nodo -> JSON Pointer path reale nell'albero."""
+    paths: dict[str, str] = {}
+
+    def walk(node, path):
+        if not isinstance(node, dict):
+            return
+        if node.get("id"):
+            paths[node["id"]] = path
+        for i, ch in enumerate(node.get("children", []) or []):
+            walk(ch, f"{path}/children/{i}")
+
+    root = screen.get("root")
+    if isinstance(root, dict):
+        walk(root, "/root")
+    return paths
+
+
+def normalize_ops(screen: dict, ops) -> list:
+    """Traduce la patch semplificata del modello in JSON Pointer reali (D41).
+
+    Il modello indirizza per ID di nodo, non per indici numerici (che
+    sbagliava regolarmente: 'chiave inesistente /root/children/0/...'):
+      {"op": "replace", "node": "balance-value", "key": "style/color",
+       "value": "{color.text-primary}"}
+
+    Regole:
+    - "node" + "key" -> path reale calcolato QUI (deterministico);
+    - replace/add su chiave di nodo diventano upsert (RFC 'add': crea la
+      chiave se manca — sparisce la classe d'errore 'chiave inesistente');
+    - le operazioni con "path" (RFC 6902 classico) passano invariate.
+    """
+    if not isinstance(ops, list):
+        return ops
+    paths: dict[str, str] | None = None
+    out: list[dict] = []
+    for i, op in enumerate(ops):
+        if isinstance(op, dict) and "node" in op and "path" not in op:
+            if paths is None:
+                paths = _node_paths(screen)
+            node_id = str(op.get("node", ""))
+            base = paths.get(node_id)
+            if base is None:
+                raise PatchError(
+                    f"operazione {i}: nodo '{node_id}' non trovato nello screen "
+                    f"(usa gli id dei NODI COINVOLTI)")
+            key = str(op.get("key", "")).strip("/")
+            if not key:
+                raise PatchError(f"operazione {i}: 'key' mancante")
+            pointer = base + "/" + "/".join(
+                t.replace("~", "~0").replace("/", "~1") for t in key.split("/"))
+            kind = op.get("op", "replace")
+            translated = {"op": "remove" if kind == "remove" else "add",
+                          "path": pointer}
+            if kind != "remove":
+                translated["value"] = op.get("value")
+            out.append(translated)
+        else:
+            out.append(op)
     return out
 
 
@@ -220,10 +289,18 @@ def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = No
         "I riferimenti ai token usano la sintassi con graffe: \"{path}\" "
         "(es. \"{color.brand.primary}\", \"{spacing.4}\"). Un riferimento e' "
         "valido SOLO se il path compare nella lista TOKEN DISPONIBILI.\n"
-        "Ricevi una lista di violazioni e i nodi coinvolti. Rispondi SOLO con una "
-        "JSON Patch RFC 6902 (array di {op,path,value}; op: add|remove|replace). "
-        "I path puntano allo screen JSON completo che ricevi "
-        "(es. /root/children/0/style/color). Regole:\n"
+        "Ricevi una lista di violazioni e i nodi coinvolti. Rispondi SOLO con un "
+        "array JSON di operazioni di patch. FORMA RICHIESTA (per nodo):\n"
+        "{\"op\": \"replace\", \"node\": \"<id-del-nodo>\", "
+        "\"key\": \"style/color\", \"value\": \"...\"}\n"
+        "- node: l'id del nodo, uguale a come appare in NODI COINVOLTI — "
+        "MAI indici numerici tipo /root/children/0/...\n"
+        "- key: chiave relativa al nodo: style/color, style/background, "
+        "props/label, layout/gap, a11y/label…\n"
+        "- op: replace (imposta la chiave, la crea se manca), remove (la toglie).\n"
+        "- Solo per proprieta' FUORI dai nodi (es. /meta/...) puoi usare la "
+        "forma RFC 6902 con \"path\".\n"
+        "Regole:\n"
         "- Correggi SOLO le violazioni elencate, non riprogettare.\n"
         "- Non cambiare gli id dei nodi, non rimuovere nodi interi.\n"
         "- Per colori/spaziature usa SOLO token dalla lista TOKEN DISPONIBILI; "
@@ -310,13 +387,15 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
         log.append(f"Tentativo {attempt}/{max_attempts}: richiesta patch al modello…")
         try:
             raw = chat_fn(messages)
-            ops = extract_json(raw)
+            ops = normalize_ops(screen, extract_json(raw))
             patched = apply_patch(screen, ops)
         except PatchError as e:
             log.append(f"✗ Patch non valida: {e}")
             messages.append({"role": "user", "content":
                              f"La patch precedente era invalida ({e}). "
-                             "Riprova: rispondi SOLO con la JSON Patch corretta."})
+                             "Riprova: usa la forma {\"op\", \"node\", \"key\", "
+                             "\"value\"} con l'ID del nodo (MAI indici numerici) "
+                             "e rispondi SOLO con l'array JSON della patch."})
             continue
         except Exception as e:
             log.append(f"✗ Il provider non risponde: {str(e)[:150]}")

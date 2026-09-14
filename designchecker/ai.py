@@ -23,7 +23,8 @@ from dataclasses import dataclass, field
 OLLAMA_URL = "http://localhost:11434"
 LMSTUDIO_URL = "http://localhost:1234"
 DETECT_TIMEOUT = 1.5
-CHAT_TIMEOUT = 120
+CHAT_TIMEOUT = 300  # i prompt del fix su schermate grandi sono decine di KB:
+                    # modelli "for coding" possono impiegare minuti (D41)
 
 # Modelli consigliati per attivita' che richiedono JSON affidabile (patch)
 # o ragionamento qualitativo (review). Match per sottostringa sul nome

@@ -354,3 +354,89 @@ class TestPromptTemaEPiattaforma(unittest.TestCase):
         msgs = build_review_prompt(self._screen(), [])
         self.assertNotIn("TEMA:", msgs[0]["content"])
         self.assertNotIn("PIATTAFORMA:", msgs[0]["content"])
+
+
+class TestPatchPerIdNodo(unittest.TestCase):
+    """D41: il modello indirizza le patch per ID di nodo, non per indici."""
+
+    def _screen(self):
+        return {"schema_version": "0.1", "meta": {"id": "s"},
+                "root": {"id": "root", "type": "Screen", "children": [
+                    {"id": "card", "type": "Card", "children": [
+                        {"id": "title", "type": "Text",
+                         "style": {"color": "#000000"}}]}]}}
+
+    def test_node_key_tradotti_in_path_reale(self):
+        from designchecker.patcher import normalize_ops, apply_patch
+        screen = self._screen()
+        ops = normalize_ops(screen, [{"op": "replace", "node": "title",
+                                      "key": "style/color",
+                                      "value": "{color.text-primary}"}])
+        self.assertEqual(ops[0]["path"],
+                         "/root/children/0/children/0/style/color")
+        out = apply_patch(screen, ops)
+        self.assertEqual(out["root"]["children"][0]["children"][0]
+                         ["style"]["color"], "{color.text-primary}")
+
+    def test_replace_su_chiave_mancante_ora_crea(self):
+        """Il bug del log di Sara: replace su chiave inesistente -> upsert."""
+        from designchecker.patcher import normalize_ops, apply_patch
+        screen = self._screen()  # 'card' non ha style
+        ops = normalize_ops(screen, [{"op": "replace", "node": "card",
+                                      "key": "style/background",
+                                      "value": "{color.surface-raised}"}])
+        out = apply_patch(screen, ops)
+        self.assertEqual(out["root"]["children"][0]["style"]["background"],
+                         "{color.surface-raised}")
+
+    def test_nodo_sconosciuto_errore_chiaro(self):
+        from designchecker.patcher import normalize_ops, PatchError
+        with self.assertRaises(PatchError) as ctx:
+            normalize_ops(self._screen(), [{"op": "replace",
+                                            "node": "fantasma",
+                                            "key": "style/color",
+                                            "value": "red"}])
+        self.assertIn("fantasma", str(ctx.exception))
+
+    def test_forma_rfc6902_classica_ancora_valida(self):
+        from designchecker.patcher import normalize_ops, apply_patch
+        screen = self._screen()
+        ops = normalize_ops(screen, [{"op": "replace",
+                                      "path": "/root/children/0/children/0/style/color",
+                                      "value": "red"}])
+        out = apply_patch(screen, ops)
+        self.assertEqual(out["root"]["children"][0]["children"][0]
+                         ["style"]["color"], "red")
+
+    def test_fix_loop_con_patch_per_id(self):
+        """Il loop accetta patch nella forma semplificata (gatekeeper incluso)."""
+        import json
+        from pathlib import Path
+        from designchecker import patcher
+        from designchecker.loader import load_screen, load_rules, load_catalog, load_tokens
+        from designchecker.tokens import TokenStore
+        from designchecker.validator import validate
+
+        root_dir = Path(__file__).resolve().parent.parent
+        screen = load_screen(root_dir / "examples" / "imported-home.screen.json")
+        rules = load_rules(root_dir / "rules")
+        tokens = TokenStore(load_tokens(root_dir / "examples" / "tokens.json"))
+        catalog = load_catalog(root_dir / "components.catalog.yaml")
+
+        def validate_fn(scr):
+            fs = validate(scr, rules, tokens, catalog)
+            return ([f for f in fs if f.severity == "error"],
+                    [f for f in fs if f.severity == "warning"])
+
+        # patch per id: lo sfondo root -> token valido (risolve ds.* hardcoded/resolvable)
+        patch = [{"op": "replace", "node": "ScreenHome",
+                  "key": "style/background",
+                  "value": "{color.bg.primary}"}]
+        findings = validate(screen, rules, tokens, catalog)
+        result = patcher.fix_loop(screen, findings, validate_fn,
+                                  lambda msgs: json.dumps(patch),
+                                  token_paths=list(tokens.flat), rules=rules)
+        # applicata o rifiutata dal validatore: mai un errore di path
+        self.assertFalse(any("chiave" in l or "non trovato" in l
+                             for l in result["log"]),
+                         msg=str(result["log"]))
