@@ -163,3 +163,46 @@ class TestPlatformCustom(unittest.TestCase):
                                                   platform="custom")}
         self.assertNotIn("ios.touch-target.min", ios_ids)
         self.assertIn("custom.touch_target_min", custom_ids)
+
+
+class TestThemeDetection(unittest.TestCase):
+    """D40: tema dark/light — rilevamento deterministico + regole tema-aware."""
+
+    def _screen(self, bg):
+        return {"schema_version": "0.1", "meta": {"id": "tema"},
+                "root": {"id": "r", "type": "Screen",
+                         "style": {"background": bg}, "children": []}}
+
+    def test_rilevamento_da_hex(self):
+        from designchecker.validator import detect_theme
+        _, _, tokens = _setup()
+        self.assertEqual(detect_theme(self._screen("#121212"), tokens), "dark")
+        self.assertEqual(detect_theme(self._screen("#FFFFFF"), tokens), "light")
+
+    def test_rilevamento_da_token_e_legacy(self):
+        from designchecker.validator import detect_theme
+        _, _, tokens = _setup()
+        # ref DTCG a un token chiaro
+        self.assertEqual(detect_theme(self._screen("{color.surface}"), tokens),
+                         "light")
+        # forma legacy "token:..."
+        self.assertEqual(detect_theme(self._screen("token:color.surface"),
+                                      tokens), "light")
+
+    def test_esplicito_e_meta_battono_rilevamento(self):
+        from designchecker.validator import resolve_theme
+        _, _, tokens = _setup()
+        screen = self._screen("#FFFFFF")
+        self.assertEqual(resolve_theme(screen, tokens, "dark"), "dark")
+        screen["meta"]["theme"] = "dark"
+        self.assertEqual(resolve_theme(screen, tokens), "dark")
+
+    def test_nero_puro_segnalato_solo_in_dark(self):
+        rules, catalog, tokens = _setup()
+        screen = self._screen("#000000")
+        ids_dark = {f.rule_id for f in validate(screen, rules, tokens, catalog,
+                                                theme="dark")}
+        ids_light = {f.rule_id for f in validate(screen, rules, tokens, catalog,
+                                                 theme="light")}
+        self.assertIn("ux.dark.pure-black", ids_dark)
+        self.assertNotIn("ux.dark.pure-black", ids_light)

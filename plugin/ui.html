@@ -63,6 +63,13 @@
         <option value="both">Entrambe (tutte le regole)</option>
       </select>
     </label>
+    <label class="toggle" for="theme">Tema:
+      <select id="theme">
+        <option value="auto" selected>Auto (dallo sfondo)</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
   </div>
   <div class="row">
     <button id="btn-export" disabled>Esporta selezione e valida</button>
@@ -179,11 +186,13 @@ async function validateScreen(screen, assets) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ screen: screen, assets: assets || [],
-                           platform: $('platform').value }),
+                           platform: $('platform').value,
+                           theme: $('theme').value }),
   });
   renderFindings(data);
   $('status').textContent = 'audit salvato: ' + (data.path || '').split('/').pop() +
-    ' [' + (data.platform || $('platform').value) + ']';
+    ' [' + (data.platform || $('platform').value) +
+    (data.theme ? ' · tema ' + data.theme : '') + ']';
   appStatus(data.app);
 }
 
@@ -220,6 +229,9 @@ async function ensureScreen() {
       if (lastScreen.meta && lastScreen.meta.platform) {
         $('platform').value = lastScreen.meta.platform;  // D39: eredita la piattaforma dichiarata
       }
+      if (lastScreen.meta && lastScreen.meta.theme) {
+        $('theme').value = lastScreen.meta.theme;  // D40: eredita il tema rilevato/dichiarato
+      }
       $('status').textContent = 'screen "' + id + '" caricato dal bridge';
       return true;
     } catch (e) { /* cade nel messaggio sotto */ }
@@ -238,7 +250,8 @@ $('btn-review').onclick = async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined,
-                             platform: $('platform').value }),
+                             platform: $('platform').value,
+                             theme: $('theme').value }),
     });
     if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
     else {
@@ -261,7 +274,8 @@ $('btn-fix').onclick = async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined,
-                             platform: $('platform').value }),
+                             platform: $('platform').value,
+                             theme: $('theme').value }),
     });
     if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
     else {
@@ -318,20 +332,25 @@ $('btn-export').onclick = () => {
   parent.postMessage({ pluginMessage: { type: 'export-selection' } }, '*');
 };
 
-// D39: cambiare piattaforma rivalida subito lo screen corrente (senza scrivere)
-$('platform').onchange = async () => {
+// D39/D40: cambiare piattaforma o tema rivalida subito (senza scrivere)
+async function revalidate() {
   if (!lastScreen) return;
   try {
-    renderFindings(await bridge('/validate', {
+    const data = await bridge('/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ screen: lastScreen, platform: $('platform').value }),
-    }));
-    $('status').textContent = 'rivalidato per piattaforma: ' + $('platform').value;
+      body: JSON.stringify({ screen: lastScreen, platform: $('platform').value,
+                             theme: $('theme').value }),
+    });
+    renderFindings(data);
+    $('status').textContent = 'rivalidato [' + data.platform +
+      (data.theme ? ' · tema ' + data.theme : '') + ']';
   } catch (e) {
     $('status').textContent = 'bridge irraggiungibile durante la rivalidazione';
   }
-};
+}
+$('platform').onchange = revalidate;
+$('theme').onchange = revalidate;
 
 $('watch').onchange = (e) => {
   parent.postMessage({ pluginMessage: { type: e.target.checked ? 'watch-start' : 'watch-stop' } }, '*');

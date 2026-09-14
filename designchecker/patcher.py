@@ -181,9 +181,24 @@ def _platform_block(platform: str | None) -> str:
     return lines.get(platform or "", "")
 
 
+def _theme_block(theme: str | None) -> str:
+    """D40: il tema (dark/light) calibra il giudizio del modello."""
+    lines = {
+        "dark": ("TEMA: il design e' in DARK MODE. Calibrati di conseguenza: "
+                 "superfici scure (evita il nero puro), contrasto del testo "
+                 "soprattutto su sfondi scuri, enfasi affidata a colore e "
+                 "spaziatura piu' che alle ombre."),
+        "light": ("TEMA: il design e' in LIGHT MODE. Calibrati di conseguenza: "
+                  "superfici chiare, ombre ed elevazione leggibili, contrasto "
+                  "del testo su sfondi chiari."),
+    }
+    return lines.get(theme or "", "")
+
+
 def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = None,
                      context: str | None = None, rules: list[dict] | None = None,
-                     platform: str | None = None) -> list:
+                     platform: str | None = None,
+                     theme: str | None = None) -> list:
     """Messaggi per la patch: schema minimo, findings, nodi coinvolti.
     token_paths: i path dei token REALMENTE disponibili (TokenStore.flat) —
     senza, il modello indovinerebbe nomi inesistenti."""
@@ -217,7 +232,7 @@ def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = No
         "- Niente testo fuori dal JSON, niente commenti.\n"
         "Se e' presente la sezione CONTESTO DELL'APP, descrive lo scopo del "
         "prodotto: rispettala (non 'correggere' scelte motivate dal contesto).\n"
-        + _platform_block(platform)
+        + _platform_block(platform) + "\n" + _theme_block(theme)
     )
     user = (
         f"VIOLAZIONI:\n{flist}\n"
@@ -235,7 +250,8 @@ def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = No
 
 def build_review_prompt(screen: dict, findings: list, context: str | None = None,
                         rules: list[dict] | None = None,
-                        platform: str | None = None) -> list:
+                        platform: str | None = None,
+                        theme: str | None = None) -> list:
     """Messaggi per la valutazione qualitativa (consultiva, non tocca il JSON)."""
     flist = "\n".join(f"- [{f.severity}] {f.rule_id} '{f.node_id}': {f.message}"
                       for f in findings) or "(nessuna violazione deterministica)"
@@ -252,7 +268,7 @@ def build_review_prompt(screen: dict, findings: list, context: str | None = None
         "scopo del prodotto (es. un'app creativa tollera scelte che una bancaria "
         "non tollera). NON proporre JSON, NON ripetere le violazioni gia' "
         "elencate: aggiungi giudizio, non rumore. Massimo 350 parole.\n"
-        + _platform_block(platform)
+        + _platform_block(platform) + "\n" + _theme_block(theme)
     )
     user = (
         f"VIOLAZIONI DETERMINISTICHE (gia' note, non ripeterle):\n{flist}\n"
@@ -270,7 +286,7 @@ def build_review_prompt(screen: dict, findings: list, context: str | None = None
 def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
              max_attempts: int = MAX_ATTEMPTS, token_paths: list | None = None,
              context: str | None = None, rules: list[dict] | None = None,
-             platform: str | None = None) -> dict:
+             platform: str | None = None, theme: str | None = None) -> dict:
     """Tenta la correzione automatica.
 
     validate_fn(screen_dict) -> (errors: list, warnings: list)
@@ -288,7 +304,8 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
                 "before": before, "after": before}
 
     messages = build_fix_prompt(screen, findings, token_paths,
-                                context=context, rules=rules, platform=platform)
+                                context=context, rules=rules,
+                                platform=platform, theme=theme)
     for attempt in range(1, max_attempts + 1):
         log.append(f"Tentativo {attempt}/{max_attempts}: richiesta patch al modello…")
         try:

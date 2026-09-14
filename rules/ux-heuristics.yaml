@@ -45,3 +45,14 @@ rules:
     message: "Navigazione non convenzionale: gli utenti si aspettano pattern che gia' conoscono"
     suggestion: "Tab bar in basso, header in alto, back a sinistra: le convenzioni sono gratis"
     rule_version: "2026"
+
+  - id: ux.dark.pure-black
+    source: "Material Design 3 — Dark theme (surfaces)"
+    source_url: "https://m3.material.io/styles/color/dark-theme/overview"
+    platform: both
+    severity: warning
+    scope: screen
+    check: dark_pure_black
+    message: "Il tema e' scuro ma lo sfondo radice e' nero puro ({value}): su dark mode il nero assoluto cancella la percezione di elevazione e profondita' delle superfici"
+    suggestion: "Usa un grigio scuro come colore di superficie (es. #121212 o un token color.bg.dark): le card in rilievo restano distinguibili"
+    rule_version: "2026"

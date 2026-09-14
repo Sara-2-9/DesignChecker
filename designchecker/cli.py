@@ -52,6 +52,9 @@ def main(argv: list[str] | None = None) -> None:
                             help="components.catalog.yaml (default: radice progetto)")
     p_validate.add_argument("--rules", type=Path, default=None,
                             help="Cartella delle regole (default: rules/ del progetto)")
+    p_validate.add_argument("--theme", choices=["auto", "light", "dark"],
+                            default="auto",
+                            help="Tema del design; 'auto' lo rileva dallo sfondo radice (D40)")
     p_validate.add_argument("--platform", choices=["ios", "android", "both", "custom"],
                             default="both", help="Piattaforma target")
 
@@ -157,7 +160,8 @@ def main(argv: list[str] | None = None) -> None:
         screen = load_screen(args.screen)
         tokens = TokenStore(load_tokens(tokens_path))
         catalog = load_catalog(catalog_path)
-        findings = validate(screen, rules, tokens, catalog, platform=args.platform)
+        findings = validate(screen, rules, tokens, catalog, platform=args.platform,
+                            theme=None if args.theme == "auto" else args.theme)
         print_report(findings, screen.get("meta", {}).get("name", str(args.screen)),
                      len([r for r in rules if r.get("phase", "validate") == "validate"]),
                      exceptions=screen.get("meta", {}).get("exceptions_applied"))
@@ -235,8 +239,11 @@ def _trace_command(args, root: Path, rules) -> None:
     print("1. LETTURA (input del sistema)")
     kb = max(args.screen.stat().st_size // 1024, 1)
     platform = (screen.get("meta", {}) or {}).get("platform", "both")
+    from .validator import resolve_theme
+    theme = resolve_theme(screen, tokens)
     print(f"   screen JSON : {args.screen} ({kb} KB, id '{sid}', "
-          f"{count(screen.get('root', {}))} nodi, piattaforma: {platform})")
+          f"{count(screen.get('root', {}))} nodi, piattaforma: {platform}, "
+          f"tema: {theme})")
     by_file: dict[str, list] = {}
     for r in rules:
         by_file.setdefault(r.get("_file", "?"), []).append(r)
@@ -245,7 +252,8 @@ def _trace_command(args, root: Path, rules) -> None:
     print(f"   token       : examples/tokens.json ({len(tokens.flat)} token)")
     print(f"   catalogo    : components.catalog.yaml ({len(catalog)} componenti)")
 
-    findings = validate(screen, rules, tokens, catalog, platform=platform)
+    findings = validate(screen, rules, tokens, catalog, platform=platform,
+                        theme=theme)
     errors = [f for f in findings if f.severity == "error"]
     warnings = [f for f in findings if f.severity == "warning"]
     print(f"\n2. VALIDAZIONE (Python deterministico, zero AI — l'arbitro) [{platform}]")

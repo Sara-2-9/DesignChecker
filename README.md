@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34) + **AI con regolamento completo e contesto opzionale** (D35) + **autogen dell'app a ogni export/fix** (`dck serve --autogen`, D36) + **osservabilità completa** (log live del bridge + `dck trace`, D37) + **prompt e risposte AI completi nel log** (`dck serve --verbose`, D38) + **selezione piattaforma iOS/Android/Custom** nel plugin, con la "quadra" cross-platform nel validatore e nell'AI (D39). 134 test OK. Decisioni D1–D39.
+🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34) + **AI con regolamento completo e contesto opzionale** (D35) + **autogen dell'app a ogni export/fix** (`dck serve --autogen`, D36) + **osservabilità completa** (log live del bridge + `dck trace`, D37) + **prompt e risposte AI completi nel log** (`dck serve --verbose`, D38) + **selezione piattaforma iOS/Android/Custom** nel plugin, con la "quadra" cross-platform nel validatore e nell'AI (D39) + **tema dark/light rilevato automaticamente** (luminanza dello sfondo, StatusBar e AI calibrati — l'AI non diventa mai il validatore, D40). 145 test OK. Decisioni D1–D40.
 
 ### Installazione (una volta sola)
 
@@ -115,7 +115,7 @@ designchecker trace examples/home.screen.json   # 6 fasi: LETTURA → VALIDAZION
 
 2. In Figma (desktop o browser): **Menu → Plugins → Development → Import plugin from manifest…** → seleziona `DesignChecker/plugin/manifest.json`
 3. Seleziona un frame-schermata sul canvas → **Plugins → Development → DesignChecker**
-4. Scegli la **Piattaforma** dal menu in alto (iOS / Android / Custom / Entrambe, D39): determina quali regole applica il validatore e come ragiona l'AI. "Custom" = design cross-platform: vale il vincolo più stretto tra iOS e Android, le convenzioni di una sola piattaforma diventano warning
+4. Scegli la **Piattaforma** dal menu in alto (iOS / Android / Custom / Entrambe, D39): determina quali regole applica il validatore e come ragiona l'AI. "Custom" = design cross-platform: vale il vincolo più stretto tra iOS e Android, le convenzioni di una sola piattaforma diventano warning. Accanto, il **Tema** (D40): Auto lo rileva dalla luminanza dello sfondo, oppure forza Light/Dark — guida validatore, AI e StatusBar del codice generato
 5. **"Esporta selezione e valida"** → audit con errori/warning + rettangoli rossi/arancio disegnati sul canvas sui nodi che violano le regole. Immagini e icone del frame vengono esportate come PNG veri in `imports/assets/<schermata>/` (D34)
 6. Attiva **"Tempo reale"**: ogni modifica al frame viene ri-validata (debounce ~1s) e le annotazioni si aggiornano da sole
 7. **Scrittura**: inserisci l'id di uno screen importato (es. `home2`) → **Render** → il plugin crea il frame nativo sul canvas dal JSON. Con gli export del plugin il render è **fedele**: geometria reale e immagini/icone clonate dall'originale (D32)
@@ -133,7 +133,7 @@ designchecker trace examples/home.screen.json   # 6 fasi: LETTURA → VALIDAZION
 ├── rules/             ← 6 file: ios-hig, material3, wcag, design-system, expo-rn, ux-heuristics
 ├── components.catalog.yaml
 ├── examples/          ← tokens.json, schermate di esempio, generated-app/ (progetto Expo)
-├── tests/             ← 134 test (validatore + codegen + importer + bridge + AI + log/trace + piattaforme)
+├── tests/             ← 145 test (validatore + codegen + importer + bridge + AI + log/trace + piattaforme + tema)
 └── docs/              ← la progettazione completa
 ```
 

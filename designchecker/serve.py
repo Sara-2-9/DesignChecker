@@ -29,7 +29,7 @@ from pathlib import Path
 from . import __version__
 from .loader import load_catalog, load_rules, load_tokens
 from .tokens import TokenStore, dimension_to_float
-from .validator import rules_for_platform, validate
+from .validator import resolve_theme, rules_for_platform, validate
 
 DEFAULT_PORT = 7357
 
@@ -145,7 +145,8 @@ class Bridge:
                     "error": str(e)[:200]}
 
     def ai_review(self, screen: dict, context: str | None = None,
-                  platform: str | None = None) -> dict:
+                  platform: str | None = None,
+                  theme: str | None = None) -> dict:
         """Valutazione qualitativa consultiva (D31), con contesto opzionale (D35)
         e piattaforma dichiarata (D39)."""
         from . import ai as _ai
@@ -154,11 +155,13 @@ class Bridge:
         if p is None:
             return {"error": "Provider AI non configurato: lancia `dck ai`"}
         platform = self._resolve_platform(screen, platform)
+        theme = resolve_theme(screen, self.tokens, theme)
         applicable = rules_for_platform(self.rules, platform)
         findings = validate(screen, self.rules, self.tokens, self.catalog,
-                            platform=platform)
+                            platform=platform, theme=theme)
         messages = patcher.build_review_prompt(screen, findings, context=context,
-                                               rules=applicable, platform=platform)
+                                               rules=applicable, platform=platform,
+                                               theme=theme)
         self._log(f"→ /review [{platform}]: {p.label} · {model} — mando screen JSON, "
                   f"{len(findings)} finding, regolamento {platform}"
                   f"{' + contesto utente' if context else ''}")
@@ -176,7 +179,8 @@ class Bridge:
             return {"error": f"Il provider non risponde: {e}"}
 
     def ai_fix(self, screen: dict, context: str | None = None,
-               platform: str | None = None) -> dict:
+               platform: str | None = None,
+               theme: str | None = None) -> dict:
         """Patch AI gated dal validatore (D31/D35), con piattaforma (D39).
         Se accettata, salva in imports/ e rigenera il progetto Expo (D36)."""
         from . import ai as _ai
@@ -185,13 +189,14 @@ class Bridge:
         if p is None:
             return {"error": "Provider AI non configurato: lancia `dck ai`"}
         platform = self._resolve_platform(screen, platform)
+        theme = resolve_theme(screen, self.tokens, theme)
         applicable = rules_for_platform(self.rules, platform)
         findings = validate(screen, self.rules, self.tokens, self.catalog,
-                            platform=platform)
+                            platform=platform, theme=theme)
 
         def validate_fn(scr):
             fs = validate(scr, self.rules, self.tokens, self.catalog,
-                          platform=platform)
+                          platform=platform, theme=theme)
             return [f for f in fs if f.severity == "error"], \
                    [f for f in fs if f.severity == "warning"]
 
@@ -214,7 +219,7 @@ class Bridge:
             result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
                                       token_paths=list(self.tokens.flat),
                                       context=context, rules=applicable,
-                                      platform=platform)
+                                      platform=platform, theme=theme)
         except Exception as e:
             self._log(f"  ✗ provider irraggiungibile: {e}")
             return {"error": f"Il provider non risponde: {e}"}
@@ -262,10 +267,12 @@ class Bridge:
                     spacing.append({"path": path, "value": num})
         return {"hex_to_token": hex_to_token, "spacing": spacing, "flat": flat}
 
-    def validate_screen(self, screen: dict, platform: str | None = None) -> dict:
+    def validate_screen(self, screen: dict, platform: str | None = None,
+                        theme: str | None = None) -> dict:
         platform = self._resolve_platform(screen, platform)
+        theme = resolve_theme(screen, self.tokens, theme)
         findings = validate(screen, self.rules, self.tokens, self.catalog,
-                            platform=platform)
+                            platform=platform, theme=theme)
         return {
             "findings": [
                 {"severity": f.severity, "rule_id": f.rule_id, "node_id": f.node_id,
@@ -276,6 +283,7 @@ class Bridge:
             "errors": len([f for f in findings if f.severity == "error"]),
             "exceptions": screen.get("meta", {}).get("exceptions_applied", []),
             "platform": platform,
+            "theme": theme,
         }
 
     @staticmethod
@@ -295,12 +303,17 @@ class Bridge:
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     def import_screen(self, screen: dict, assets: list | None = None,
-                      platform: str | None = None) -> dict:
-        # D39: la piattaforma scelta nel plugin diventa parte del contratto
-        # (meta.platform) — review/fix/trace la ereditano da qui.
+                      platform: str | None = None,
+                      theme: str | None = None) -> dict:
+        # D39/D40: piattaforma e tema scelti nel plugin diventano parte del
+        # contratto (meta) — review/fix/trace/codegen li ereditano da qui.
         platform = self._resolve_platform(screen, platform)
         screen.setdefault("meta", {})["platform"] = platform
-        result = self.validate_screen(screen, platform)
+        # theme "auto" (o assente) -> rilevamento deterministico dalla
+        # luminanza dello sfondo radice
+        theme = resolve_theme(screen, self.tokens, theme)
+        screen["meta"]["theme"] = theme
+        result = self.validate_screen(screen, platform, theme)
         out_dir = self.root / "imports"
         out_dir.mkdir(exist_ok=True)
         screen_id = screen.get("meta", {}).get("id", "screen")
@@ -310,7 +323,7 @@ class Bridge:
         self._log(f"→ /import dal plugin: screen '{screen_id}' "
                   f"({self._count_nodes(screen.get('root', {}))} nodi, "
                   f"{len(assets or [])} asset in arrivo) — "
-                  f"piattaforma: {platform} — "
+                  f"piattaforma: {platform}, tema: {theme} — "
                   f"validatore: {result['errors']} errori, "
                   f"{len(result['findings']) - result['errors']} warning")
 
@@ -440,21 +453,22 @@ def make_handler(bridge: Bridge):
                 return
             screen = payload.get("screen", payload)
             platform = payload.get("platform")
+            theme = payload.get("theme")
             if self.path == "/validate":
-                result = bridge.validate_screen(screen, platform)
+                result = bridge.validate_screen(screen, platform, theme)
                 bridge._log(f"→ /validate [{result['platform']}]: {result['errors']} errori, "
                             f"{len(result['findings']) - result['errors']} warning "
                             f"(nessuna scrittura)")
                 self._send(200, result)
             elif self.path == "/import":
                 self._send(200, bridge.import_screen(screen, assets=payload.get("assets"),
-                                                     platform=platform))
+                                                     platform=platform, theme=theme))
             elif self.path == "/review":
                 self._send(200, bridge.ai_review(screen, context=payload.get("context"),
-                                                 platform=platform))
+                                                 platform=platform, theme=theme))
             elif self.path == "/fix":
                 self._send(200, bridge.ai_fix(screen, context=payload.get("context"),
-                                              platform=platform))
+                                              platform=platform, theme=theme))
             else:
                 self._send(404, {"error": "endpoint sconosciuto"})
 

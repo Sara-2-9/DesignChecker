@@ -322,3 +322,35 @@ class TestPromptContestoERegole(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPromptTemaEPiattaforma(unittest.TestCase):
+    """D39/D40: i prompt AI ricevono piattaforma e tema dichiarati."""
+
+    def _screen(self):
+        return {"schema_version": "0.1", "meta": {"id": "s"},
+                "root": {"id": "r", "type": "Screen", "children": []}}
+
+    def test_prompt_custom_e_dark(self):
+        from designchecker.patcher import build_review_prompt
+        msgs = build_review_prompt(self._screen(), [], platform="custom",
+                                   theme="dark")
+        system = msgs[0]["content"]
+        self.assertIn("CUSTOM", system)
+        self.assertIn("quadra", system)
+        self.assertIn("DARK MODE", system)
+
+    def test_prompt_fix_ios_light(self):
+        from designchecker.patcher import build_fix_prompt
+        msgs = build_fix_prompt(self._screen(), [], platform="ios",
+                                theme="light")
+        system = msgs[0]["content"]
+        self.assertIn("iOS", system)
+        self.assertIn("LIGHT MODE", system)
+        self.assertNotIn("DARK MODE", system)
+
+    def test_senza_tema_niente_blocco(self):
+        from designchecker.patcher import build_review_prompt
+        msgs = build_review_prompt(self._screen(), [])
+        self.assertNotIn("TEMA:", msgs[0]["content"])
+        self.assertNotIn("PIATTAFORMA:", msgs[0]["content"])

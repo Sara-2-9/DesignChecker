@@ -523,3 +523,37 @@ class TestBridgeVerboseAI(unittest.TestCase):
         self.assertIn("PROMPT → AI [system]", out)
         self.assertIn("RISPOSTA ← AI (patch grezza)", out)
         self.assertIn("/root/style/background", out)  # la patch grezza e' nel log
+
+
+class TestBridgeTheme(unittest.TestCase):
+    """D40: il bridge salva il tema in meta e lo restituisce."""
+
+    @classmethod
+    def tearDownClass(cls):
+        imports = ROOT / "imports"
+        (imports / "test-theme.screen.json").unlink(missing_ok=True)
+        (imports / ".test-theme.export.sha256").unlink(missing_ok=True)
+
+    def _screen(self, bg):
+        return {"schema_version": "0.1", "meta": {"id": "test-theme"},
+                "root": {"id": "r", "type": "Screen",
+                         "style": {"background": bg}, "children": []}}
+
+    def test_auto_rileva_e_salva_dark(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        screen = self._screen("#0E0E10")
+        with redirect_stdout(buf):
+            result = Bridge(ROOT).import_screen(screen, theme="auto")
+        self.assertEqual(result["theme"], "dark")
+        self.assertEqual(screen["meta"]["theme"], "dark")  # salvato nel contratto
+        self.assertIn("tema: dark", buf.getvalue())
+
+    def test_scelta_esplicita_vince_sul_rilevamento(self):
+        import io
+        from contextlib import redirect_stdout
+        with redirect_stdout(io.StringIO()):
+            result = Bridge(ROOT).import_screen(self._screen("#FFFFFF"),
+                                                theme="dark")
+        self.assertEqual(result["theme"], "dark")

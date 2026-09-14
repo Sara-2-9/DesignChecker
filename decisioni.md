@@ -289,3 +289,34 @@ Nota: alcune regole in ios-hig.yaml sono dichiarate `platform: both`
 (accessibilita' universale) pur avendo id ios.* — e' voluto.
 
 134 test OK.
+
+## D40 — Tema dark/light: rilevamento deterministico, MAI AI come validatore (2026-07)
+
+Richiesta: il sistema non riconosce se un design e' dark o light mode; valutare
+se introdurre l'AI come controllore/validatore al posto del check deterministico.
+
+**Decisione architetturale: l'AI non diventa MAI il validatore.** Il validatore
+e' l'arbitro del sistema: se fosse un LLM, lo stesso design darebbe verdetti
+diversi a ogni export (campionamento), il gatekeeper del fix non avrebbe piu' un
+criterio affidabile, ogni export costerebbe una chiamata (secondi/minuti vs
+millisecondi) e non sarebbe riproducibile ne' testabile. L'AI resta dove serve
+giudizio: review consultiva e proposte di patch, sempre sotto validazione.
+
+**La proprieta' mancante (dark/light) e' deterministica, non serve l'AI:**
+1. **Rilevamento** — `detect_theme()`: luminanza relativa WCAG dello sfondo
+   radice (< 0.5 → dark). Gestisce hex, ref DTCG e forma legacy "token:".
+   Priorita': scelta esplicita > meta.theme salvata > rilevamento.
+2. **Plugin** — selettore Tema (Auto/Light/Dark, default Auto) accanto a
+   Piattaforma; lo status mostra il tema rilevato ("[ios · tema dark]");
+   il bridge salva `meta.theme` nel contratto; codegen e AI lo ereditano.
+3. **Regole tema-aware** — il Context del validatore ora porta `theme`;
+   prima regola: `ux.dark.pure-black` (warning): in dark mode lo sfondo
+   radice nero puro cancella la percezione di elevazione (M3 dark theme).
+4. **Codegen** — `<StatusBar style="light|dark" />` (expo-status-bar) e
+   `userInterfaceStyle` in app.json seguono meta.theme.
+5. **AI calibrata** — `_theme_block()` nei prompt: il modello sa se il design
+   e' dark/light e ragiona di conseguenza (es. niente ombre come enfasi in
+   dark mode).
+6. **CLI** — `dck validate --theme auto|light|dark`; `dck trace` mostra il tema.
+
+145 test OK.

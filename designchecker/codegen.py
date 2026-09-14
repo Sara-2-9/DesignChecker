@@ -464,6 +464,10 @@ class Codegen:
 
         body = self.emit(root, 1)
 
+        # D40: la status bar segue il tema del design (testo chiaro su dark).
+        theme_mode = (self.screen.get("meta", {}) or {}).get("theme", "light")
+        status_bar = "light" if theme_mode == "dark" else "dark"
+
         imports = {"react-native": {"View", "Text", "StyleSheet"}}
         if "Pressable" in body:
             imports["react-native"].add("Pressable")
@@ -477,6 +481,7 @@ class Codegen:
             imports["react-native"].add("Image")
 
         lines = []
+        lines.append("import { StatusBar } from 'expo-status-bar';")
         if self.needs_safe_area:
             lines.append("import { SafeAreaView } from 'react-native-safe-area-context';")
         if self.needs_router:
@@ -504,7 +509,10 @@ export function {component}() {{
 {router_line}
 {hooks}
   return (
+    <>
+      <StatusBar style="{status_bar}" />
 {body}
+    </>
   );
 }}
 
@@ -807,11 +815,14 @@ export function use{pascal(state)}() {{
         }, indent=2)
 
     def app_json(self) -> str:
+        # D40: il chrome di sistema (splash, UI fuori dal JS) segue il tema
+        theme_mode = (self.screen.get("meta", {}) or {}).get("theme", "light")
         return json.dumps({"expo": {
             "name": f"{self.app_name} (preview DesignChecker)",
             "slug": f"{self.app_name}-preview",
             "scheme": self.app_name,
-            "newArchEnabled": True
+            "newArchEnabled": True,
+            "userInterfaceStyle": theme_mode
         }}, indent=2)
 
     def tsconfig_json(self) -> str:

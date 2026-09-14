@@ -364,3 +364,35 @@ class TestCodegenRealAssets(unittest.TestCase):
         # l'icona con asset presente resta un'immagine reale
         self.assertIn("source={require('../../assets/img-test-icon-gear.png')}", content)
 
+
+
+class TestCodegenTheme(unittest.TestCase):
+    """D40: la status bar e il chrome di sistema seguono il tema del design."""
+
+    def _tokens_catalog(self):
+        tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        catalog = load_catalog(ROOT / "components.catalog.yaml")
+        return tokens, catalog
+
+    def _screen(self, theme):
+        return {"schema_version": "0.1",
+                "meta": {"id": "tema-app", "theme": theme},
+                "root": {"id": "r", "type": "Screen",
+                         "style": {"background": "#FFFFFF"},
+                         "children": [{"id": "t", "type": "Text",
+                                       "props": {"content": "ciao"}}]}}
+
+    def test_dark_mode_statusbar_chiara(self):
+        tokens, catalog = self._tokens_catalog()
+        codegen = Codegen(self._screen("dark"), tokens, catalog)
+        _, _, content = codegen.screen_tsx()
+        self.assertIn('import { StatusBar }', content)
+        self.assertIn('<StatusBar style="light" />', content)
+        self.assertIn('"userInterfaceStyle": "dark"', codegen.app_json())
+
+    def test_light_mode_statusbar_scura(self):
+        tokens, catalog = self._tokens_catalog()
+        codegen = Codegen(self._screen("light"), tokens, catalog)
+        _, _, content = codegen.screen_tsx()
+        self.assertIn('<StatusBar style="dark" />', content)
+        self.assertIn('"userInterfaceStyle": "light"', codegen.app_json())

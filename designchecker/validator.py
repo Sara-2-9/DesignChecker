@@ -37,6 +37,7 @@ class Context:
     catalog: dict            # type -> entry del catalogo
     platform: str            # ios | android | both
     screen: dict             # root dello screen JSON
+    theme: str = "light"     # light | dark (D40: rilevato o dichiarato)
     parents: dict = field(default_factory=dict)  # id(node) -> parent node
 
     def entry(self, node: dict) -> dict:
@@ -416,6 +417,52 @@ def check_kebab_case_ids(node, rule, ctx):
     return None
 
 
+# ---------------------------------------------------------------- tema (D40)
+
+THEMES = ("light", "dark")
+
+
+def detect_theme(screen: dict, tokens: TokenStore) -> str:
+    """Tema del design dalla luminanza dello sfondo radice (deterministico):
+    < 0.5 → dark. Gestisce hex, ref DTCG "{...}" e forma legacy "token:...".
+    Se lo sfondo non e' risolvibile: 'light' (default prudente)."""
+    from .tokens import hex_to_rgb, relative_luminance
+    bg = ((screen.get("root", {}) or {}).get("style", {}) or {}).get("background")
+    if not bg or not isinstance(bg, str):
+        return "light"
+    value = bg.strip()
+    if value.startswith("token:"):
+        value = tokens.resolve_path(value[len("token:"):]) or value
+    else:
+        value = tokens.resolve_value(value)
+    rgb = hex_to_rgb(value) if isinstance(value, str) else None
+    if rgb is None:
+        return "light"
+    return "dark" if relative_luminance(rgb) < 0.5 else "light"
+
+
+def resolve_theme(screen: dict, tokens: TokenStore,
+                  theme: str | None = None) -> str:
+    """Priorita': scelta esplicita > meta.theme salvata > rilevamento."""
+    if theme in THEMES:
+        return theme
+    meta_theme = (screen.get("meta", {}) or {}).get("theme")
+    if meta_theme in THEMES:
+        return meta_theme
+    return detect_theme(screen, tokens)
+
+
+def check_dark_pure_black(node, rule, ctx):
+    """Scope: screen. In dark mode il nero puro come sfondo radice cancella
+    la percezione di elevazione e profondita' (Material dark theme)."""
+    if ctx.theme != "dark":
+        return None
+    bg = nearest_background(node, ctx)
+    if isinstance(bg, str) and bg.strip().lstrip("#").lower() in ("000", "000000"):
+        return [make_finding(rule, "(schermata)", value=bg)]
+    return None
+
+
 CHECKS = {
     "touch_target_min": check_touch_target_min,
     "max_items": check_max_items,
@@ -444,10 +491,12 @@ CHECKS = {
     "token_group_exists": check_token_group_exists,
     "gap_tokenized": check_gap_tokenized,
     "kebab_case_ids": check_kebab_case_ids,
+    "dark_pure_black": check_dark_pure_black,
 }
 
 SCREEN_SCOPE_CHECKS = {"single_primary_action", "max_instances",
-                       "nav_pattern_present", "token_group_exists"}
+                       "nav_pattern_present", "token_group_exists",
+                       "dark_pure_black"}
 
 PLATFORMS = ("ios", "android", "both", "custom")
 
@@ -531,15 +580,22 @@ def rules_for_platform(rules: list[dict], platform: str) -> list[dict]:
 
 
 def validate(screen: dict, rules: list[dict], tokens: TokenStore,
-             catalog: dict, platform: str = "both") -> list[Finding]:
+             catalog: dict, platform: str = "both",
+             theme: str | None = None) -> list[Finding]:
     """Esegue tutte le regole applicabili sullo screen JSON.
 
     Eccezioni consapevoli (D30): un nodo puo' dichiarare
     meta.exceptions: [{rule: "<id o prefisso>", reason: "..."}] —
     i finding coperti vengono rimossi e conteggiati in
     screen["meta"]["exceptions_applied"] (visibile nel report).
+
+    Tema (D40): esplicito > meta.theme > rilevato dalla luminanza
+    dello sfondo radice. Le regole sensibili al tema (es. dark mode)
+    leggono ctx.theme.
     """
-    ctx = Context(tokens=tokens, catalog=catalog, platform=platform, screen=screen)
+    theme = resolve_theme(screen, tokens, theme)
+    ctx = Context(tokens=tokens, catalog=catalog, platform=platform,
+                  screen=screen, theme=theme)
     # costruisce la mappa dei genitori una sola volta
     list(walk(screen.get("root", {}), None, ctx))
 
