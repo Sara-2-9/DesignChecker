@@ -36,8 +36,9 @@ DEFAULT_PORT = 7357
 class Bridge:
     """Logica degli endpoint, separata dal server (testabile senza rete)."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, autogen: Path | None = None):
         self.root = root
+        self.autogen = Path(autogen).expanduser() if autogen else None
         self.rules = load_rules(root / "rules")
         self.catalog = load_catalog(root / "components.catalog.yaml")
         self.tokens = TokenStore(load_tokens(root / "examples" / "tokens.json"))
@@ -70,24 +71,69 @@ class Bridge:
         p, model, _ = self._ai_provider()
         return {"ok": True, "version": __version__, "bridge": "designchecker",
                 "ai": {"configured": p is not None,
-                       "label": p.label if p else None, "model": model}}
+                       "label": p.label if p else None, "model": model},
+                "autogen": str(self.autogen) if self.autogen else None,
+                "metro": self._metro_running()}
 
-    def ai_review(self, screen: dict) -> dict:
-        """Valutazione qualitativa consultiva (D31)."""
+    # ---------------------------------------------------------- autogen (D36)
+
+    @staticmethod
+    def _metro_running(port: int = 8081) -> bool:
+        """Metro risponde su /status quando e' attivo: se gira, l'app nel
+        simulatore si aggiorna da sola dopo ogni autogen (Fast Refresh)."""
+        import urllib.request
+        try:
+            urllib.request.urlopen(f"http://localhost:{port}/status", timeout=0.6)
+            return True
+        except Exception:
+            return False
+
+    def _autogen_app(self, screen: dict) -> dict | None:
+        """Rigenera il progetto Expo dopo ogni import/fix (D36): l'utente non
+        tocca piu' il terminale. La cartella e' protetta da un marker: se
+        esiste, e' piena e NON e' stata creata da noi, ci rifiutiamo di
+        sovrascrivere (mai distruggere lavoro altrui)."""
+        if not self.autogen:
+            return None
+        marker = self.autogen / ".designchecker-autogen"
+        try:
+            if self.autogen.exists() and any(self.autogen.iterdir()) \
+                    and not marker.exists():
+                return {"ok": False, "path": str(self.autogen),
+                        "error": "cartella non vuota e non gestita da "
+                                 "DesignChecker: scegline un'altra con "
+                                 "--autogen <path>"}
+            from .codegen import Codegen
+            screen_id = screen.get("meta", {}).get("id", "screen")
+            codegen = Codegen(screen, self.tokens, self.catalog,
+                              assets_dir=self.root / "imports" / "assets" / screen_id)
+            files = codegen.generate(self.autogen)
+            marker.write_text("Cartella generata da `dck serve --autogen`: "
+                              "non modificarla a mano.\n", encoding="utf-8")
+            return {"ok": True, "path": str(self.autogen), "files": len(files),
+                    "metro": self._metro_running()}
+        except Exception as e:
+            return {"ok": False, "path": str(self.autogen),
+                    "error": str(e)[:200]}
+
+    def ai_review(self, screen: dict, context: str | None = None) -> dict:
+        """Valutazione qualitativa consultiva (D31), con contesto opzionale (D35)."""
         from . import ai as _ai
         from . import patcher
         p, model, config = self._ai_provider()
         if p is None:
             return {"error": "Provider AI non configurato: lancia `dck ai`"}
         findings = validate(screen, self.rules, self.tokens, self.catalog)
-        messages = patcher.build_review_prompt(screen, findings)
+        messages = patcher.build_review_prompt(screen, findings, context=context,
+                                               rules=self.rules)
         try:
             return {"critique": _ai.chat(p, model, messages, config).strip()}
         except Exception as e:
             return {"error": f"Il provider non risponde: {e}"}
 
-    def ai_fix(self, screen: dict) -> dict:
-        """Patch AI gated dal validatore (D31). Se accettata, salva in imports/."""
+    def ai_fix(self, screen: dict, context: str | None = None) -> dict:
+        """Patch AI gated dal validatore (D31/D35). Se accettata, salva in
+        imports/ e rigenera il progetto Expo (D36)."""
         from . import ai as _ai
         from . import patcher
         p, model, config = self._ai_provider()
@@ -105,7 +151,8 @@ class Bridge:
 
         try:
             result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
-                                      token_paths=list(self.tokens.flat))
+                                      token_paths=list(self.tokens.flat),
+                                      context=context, rules=self.rules)
         except Exception as e:
             return {"error": f"Il provider non risponde: {e}"}
         if result["applied"]:
@@ -116,6 +163,9 @@ class Bridge:
             out_path.write_text(json.dumps(result["screen"], indent=2,
                                            ensure_ascii=False), encoding="utf-8")
             result["path"] = str(out_path)
+            app = self._autogen_app(result["screen"])
+            if app:
+                result["app"] = app
         return result
 
 
@@ -204,6 +254,11 @@ class Bridge:
         out_path.write_text(new_content, encoding="utf-8")
         sidecar.write_text(self._sha(new_content), encoding="utf-8")
         result["path"] = str(out_path)
+
+        # Autogen (D36): rigenera il progetto Expo ad ogni export dal canvas.
+        app = self._autogen_app(screen)
+        if app:
+            result["app"] = app
         return result
 
     def get_screen(self, screen_id: str) -> dict | None:
@@ -273,9 +328,9 @@ def make_handler(bridge: Bridge):
             elif self.path == "/import":
                 self._send(200, bridge.import_screen(screen, assets=payload.get("assets")))
             elif self.path == "/review":
-                self._send(200, bridge.ai_review(screen))
+                self._send(200, bridge.ai_review(screen, context=payload.get("context")))
             elif self.path == "/fix":
-                self._send(200, bridge.ai_fix(screen))
+                self._send(200, bridge.ai_fix(screen, context=payload.get("context")))
             else:
                 self._send(404, {"error": "endpoint sconosciuto"})
 
@@ -285,11 +340,11 @@ def make_handler(bridge: Bridge):
     return Handler
 
 
-def serve(root: Path, port: int = DEFAULT_PORT) -> None:
+def serve(root: Path, port: int = DEFAULT_PORT, autogen: Path | None = None) -> None:
     import socket
     import threading
 
-    bridge = Bridge(root)
+    bridge = Bridge(root, autogen=autogen)
     handler = make_handler(bridge)
 
     servers: list[ThreadingHTTPServer] = []
@@ -309,6 +364,10 @@ def serve(root: Path, port: int = DEFAULT_PORT) -> None:
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
     print(f"DesignChecker bridge attivo su http://localhost:{port}")
+    if autogen:
+        print(f"Autogen attivo: ogni export/fix rigenera l'app in {bridge.autogen}")
+        print("  (Metro attivo? l'app nel simulatore si aggiorna da sola. "
+              "Altrimenti, solo la prima volta: cd <cartella> && npm install && npx expo start)")
     print("Il plugin Figma ora parla con questo processo. Ctrl+C per fermare.")
     try:
         servers[0].serve_forever()

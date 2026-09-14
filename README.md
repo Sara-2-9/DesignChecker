@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34). 116 test OK. Decisioni D1–D34.
+🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34) + **AI con regolamento completo e contesto opzionale** (D35) + **autogen dell'app a ogni export/fix** (`dck serve --autogen`, D36). 123 test OK. Decisioni D1–D36.
 
 ### Installazione (una volta sola)
 
@@ -99,6 +99,7 @@ L'AI non tocca mai il JSON senza permesso del validatore deterministico: una pat
 ```bash
 # 1. In un terminale, dalla cartella del progetto:
 designchecker serve          # bridge locale su http://localhost:7357 (lasciarlo aperto)
+designchecker serve --autogen ~/Desktop/la-mia-app   # + rigenera l'app Expo a ogni export/fix (D36)
 ```
 
 2. In Figma (desktop o browser): **Menu → Plugins → Development → Import plugin from manifest…** → seleziona `DesignChecker/plugin/manifest.json`

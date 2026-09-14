@@ -69,6 +69,9 @@
     <button id="btn-review" class="secondary" disabled>Valuta il design</button>
     <button id="btn-fix" class="secondary" disabled>Correggi con AI</button>
   </div>
+  <div class="row">
+    <input type="text" id="ai-context" placeholder="contesto app (opzionale) — es. app di vibe coding…">
+  </div>
   <div id="ai-out"></div>
   <hr>
   <div class="section">Scrivi su canvas</div>
@@ -102,7 +105,8 @@ async function boot() {
     const [catalog, tokens] = await Promise.all([bridge('/catalog'), bridge('/tokens')]);
     parent.postMessage({ pluginMessage: { type: 'init-data', catalog, tokens } }, '*');
     $('dot').className = 'dot on';
-    $('status').textContent = 'bridge attivo — DesignChecker v' + health.version;
+    $('status').textContent = 'bridge attivo — DesignChecker v' + health.version +
+      (health.autogen ? ' · autogen attivo' : '');
     $('btn-export').disabled = false;
     $('watch').disabled = false;
     $('btn-render').disabled = false;
@@ -167,6 +171,19 @@ async function validateScreen(screen, assets) {
   });
   renderFindings(data);
   $('status').textContent = 'audit salvato: ' + (data.path || '').split('/').pop();
+  appStatus(data.app);
+}
+
+// D36: esito dell'autogen (progetto Expo rigenerato dal bridge)
+function appStatus(app) {
+  if (!app) return;
+  if (app.ok) {
+    $('status').textContent += app.metro
+      ? ' · app aggiornata (Metro attivo: si ricarica da sola)'
+      : ' · app aggiornata — prima volta? cd ' + app.path + ' && npm install && npx expo start';
+  } else {
+    $('status').textContent += ' · autogen fermo: ' + app.error;
+  }
 }
 
 function aiOut(html) { $('ai-out').innerHTML = html; }
@@ -178,15 +195,33 @@ function setAiBusy(busy, label) {
   if (label) $('status').textContent = label;
 }
 
+// I bottoni AI lavorano su lastScreen: se il plugin e' appena stato riaperto
+// la memoria e' vuota — prova a caricare lo screen dal campo id, altrimenti
+// spiega cosa fare (mai un click silenzioso).
+async function ensureScreen() {
+  if (lastScreen) return true;
+  const id = $('screen-id').value.trim();
+  if (id) {
+    try {
+      lastScreen = await bridge('/screen/' + encodeURIComponent(id));
+      $('status').textContent = 'screen "' + id + '" caricato dal bridge';
+      return true;
+    } catch (e) { /* cade nel messaggio sotto */ }
+  }
+  $('status').textContent = 'prima esporta e valida una selezione (o scrivi l\'id della schermata nel campo Render e riprova)';
+  return false;
+}
+
 $('btn-review').onclick = async () => {
-  if (!lastScreen || aiBusy) return;
+  if (aiBusy) return;
+  if (!(await ensureScreen())) return;
   setAiBusy(true, 'valutazione AI in corso…');
   aiOut('');
   try {
     const data = await bridge('/review', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ screen: lastScreen }),
+      body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined }),
     });
     if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
     else {
@@ -200,14 +235,15 @@ $('btn-review').onclick = async () => {
 };
 
 $('btn-fix').onclick = async () => {
-  if (!lastScreen || aiBusy) return;
+  if (aiBusy) return;
+  if (!(await ensureScreen())) return;
   setAiBusy(true, 'fix AI in corso: il validatore fara\' da gatekeeper…');
   aiOut('');
   try {
     const data = await bridge('/fix', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ screen: lastScreen }),
+      body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined }),
     });
     if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
     else {
@@ -216,6 +252,8 @@ $('btn-fix').onclick = async () => {
           ? '<div class="ok">✓ Patch applicata e salvata — renderizzo la versione corretta</div>'
           : '<div class="finding warning"><div>Nessuna patch accettabile: file invariato</div></div>'));
       if (data.applied && data.screen) {
+        $('status').textContent = 'fix applicato';
+        appStatus(data.app);
         lastScreen = data.screen;
         renderFindings(await bridge('/validate', {
           method: 'POST',

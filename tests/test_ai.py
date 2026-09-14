@@ -268,5 +268,57 @@ class TestPrompts(unittest.TestCase):
         self.assertIn("NON proporre JSON", msgs[0]["content"])
 
 
+class TestPromptContestoERegole(unittest.TestCase):
+    """D35: l'AI riceve il regolamento completo (non solo le violazioni
+    trovate) e il contesto opzionale dell'utente."""
+
+    RULES = [{"id": "wcag.1.4.3.contrast-large", "severity": "error",
+              "message": "'{node}' ha contrasto insufficiente"},
+             {"id": "ds.no-hardcoded-value", "severity": "error",
+              "message": "'{node}' ha un valore hard-coded"}]
+
+    def test_fix_prompt_contiene_regolamento_completo(self):
+        msgs = patcher.build_fix_prompt(screen_with_bad_color(), [finding()],
+                                        rules=self.RULES)
+        user = msgs[1]["content"]
+        self.assertIn("REGOLAMENTO COMPLETO", user)
+        # regola presente nel regolamento pur non essendo tra i finding
+        self.assertIn("wcag.1.4.3.contrast-large", user)
+
+    def test_contesto_utente_in_entrambi_i_prompt(self):
+        ctx = "app di vibe coding: le persone creano e guardano app altrui"
+        for msgs in (patcher.build_fix_prompt(screen_with_bad_color(),
+                                              [finding()], context=ctx),
+                     patcher.build_review_prompt(screen_with_bad_color(), [],
+                                                 context=ctx)):
+            self.assertIn("CONTESTO DELL'APP", msgs[1]["content"])
+            self.assertIn("vibe coding", msgs[1]["content"])
+
+    def test_senza_contesto_nessuna_sezione(self):
+        msgs = patcher.build_fix_prompt(screen_with_bad_color(), [finding()])
+        self.assertNotIn("CONTESTO DELL'APP", msgs[1]["content"])
+
+    def test_fix_loop_passa_contesto_al_prompt(self):
+        import json as _json
+        seen = {}
+
+        def validate_fn(scr):
+            color = scr["root"]["children"][0]["style"]["color"]
+            return ([finding()] if str(color).startswith("#") else []), []
+
+        ops = [{"op": "replace", "path": "/root/children/0/style/color",
+                "value": "{color.brand.primary}"}]
+
+        def chat_fn(msgs):
+            seen["user"] = msgs[1]["content"]
+            return _json.dumps(ops)
+
+        result = patcher.fix_loop(screen_with_bad_color(), [finding()],
+                                  validate_fn, chat_fn,
+                                  context="contesto di prova")
+        self.assertTrue(result["applied"])
+        self.assertIn("contesto di prova", seen["user"])
+
+
 if __name__ == "__main__":
     unittest.main()

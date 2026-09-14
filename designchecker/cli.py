@@ -86,6 +86,10 @@ def main(argv: list[str] | None = None) -> None:
 
     p_serve = sub.add_parser("serve", help="Bridge locale per il plugin Figma (D29)")
     p_serve.add_argument("--port", type=int, default=7357)
+    p_serve.add_argument("--autogen", nargs="?", const="~/Desktop/dck-preview",
+                         default=None, metavar="PATH",
+                         help="Rigenera il progetto Expo a ogni export/fix (D36). "
+                              "Senza PATH usa ~/Desktop/dck-preview")
 
     p_ai = sub.add_parser("ai", help="Configura il provider AI: rileva, menu, probe (D31)")
     p_ai.add_argument("--probe", action="store_true",
@@ -96,12 +100,16 @@ def main(argv: list[str] | None = None) -> None:
     p_fix.add_argument("--tokens", type=Path, default=None)
     p_fix.add_argument("--catalog", type=Path, default=None)
     p_fix.add_argument("--platform", choices=["ios", "android", "both"], default="both")
+    p_fix.add_argument("--context", default=None,
+                       help="Contesto opzionale sull'app per calibrare l'AI (D35)")
 
     p_review = sub.add_parser("review", help="Valutazione qualitativa AI del design (D31)")
     p_review.add_argument("screen", type=Path, help="Percorso dello screen JSON")
     p_review.add_argument("--tokens", type=Path, default=None)
     p_review.add_argument("--catalog", type=Path, default=None)
     p_review.add_argument("--platform", choices=["ios", "android", "both"], default="both")
+    p_review.add_argument("--context", default=None,
+                          help="Contesto opzionale sull'app per calibrare l'AI (D35)")
 
     args = parser.parse_args(argv)
     root = _find_project_root()
@@ -170,7 +178,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "serve":
         from .serve import serve
-        serve(root, port=args.port)
+        serve(root, port=args.port, autogen=args.autogen)
         return
 
     if args.command == "ai":
@@ -610,7 +618,8 @@ def _ai_screen_command(args, root: Path, rules) -> None:
 
     if args.command == "review":
         print(f"── Valutazione AI ({p.label} · {model}) di '{name}' ──\n")
-        messages = patcher.build_review_prompt(screen, findings)
+        messages = patcher.build_review_prompt(screen, findings,
+                                               context=args.context, rules=rules)
         try:
             print(chat_fn(messages).strip())
         except Exception as e:
@@ -628,7 +637,8 @@ def _ai_screen_command(args, root: Path, rules) -> None:
                [f for f in fs if f.severity == "warning"]
 
     result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
-                              token_paths=list(tokens.flat))
+                              token_paths=list(tokens.flat),
+                              context=args.context, rules=rules)
     for line in result["log"]:
         print(f"  {line}")
     if result["applied"]:

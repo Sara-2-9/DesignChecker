@@ -285,6 +285,58 @@ class TestBridgeAssets(unittest.TestCase):
         self.assertFalse(self.assets_dir.exists())
 
 
+class TestBridgeAutogen(unittest.TestCase):
+    """D36: con --autogen il bridge rigenera il progetto Expo a ogni
+    import/fix. La cartella e' protetta da marker: mai sovrascrivere
+    una cartella non creata da DesignChecker."""
+
+    @classmethod
+    def tearDownClass(cls):
+        imports = ROOT / "imports"
+        (imports / "auto-app.screen.json").unlink(missing_ok=True)
+        (imports / ".auto-app.export.sha256").unlink(missing_ok=True)
+
+    def setUp(self):
+        import tempfile
+        self.tmp = Path(tempfile.mkdtemp(prefix="dc-autogen-"))
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _screen(self):
+        return {"schema_version": "0.1",
+                "meta": {"id": "auto-app", "name": "Auto", "route": "/"},
+                "root": {"id": "r", "type": "Screen",
+                         "children": [{"id": "t", "type": "Text",
+                                       "props": {"content": "ciao"}}]}}
+
+    def test_import_genera_progetto_expo(self):
+        out = self.tmp / "app"
+        bridge = Bridge(ROOT, autogen=out)
+        result = bridge.import_screen(self._screen())
+        self.assertTrue(result["app"]["ok"])
+        self.assertTrue((out / "src" / "screens" / "auto-app" / "index.tsx").is_file())
+        self.assertTrue((out / "package.json").is_file())
+        self.assertTrue((out / ".designchecker-autogen").is_file())
+
+    def test_rifiuta_cartella_non_creata_da_noi(self):
+        out = self.tmp / "app"
+        out.mkdir()
+        (out / "mio-file.txt").write_text("non toccare", encoding="utf-8")
+        bridge = Bridge(ROOT, autogen=out)
+        result = bridge.import_screen(self._screen())
+        self.assertFalse(result["app"]["ok"])
+        self.assertFalse((out / "package.json").exists())
+        self.assertEqual((out / "mio-file.txt").read_text(encoding="utf-8"),
+                         "non toccare")
+
+    def test_senza_autogen_nessuna_chiave_app(self):
+        bridge = Bridge(ROOT)
+        result = bridge.import_screen(self._screen())
+        self.assertNotIn("app", result)
+
+
 class TestBridgeAI(unittest.TestCase):
     """Endpoint AI del bridge (D31) con provider finto: niente rete."""
 
