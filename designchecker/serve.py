@@ -29,7 +29,7 @@ from pathlib import Path
 from . import __version__
 from .loader import load_catalog, load_rules, load_tokens
 from .tokens import TokenStore, dimension_to_float
-from .validator import validate
+from .validator import rules_for_platform, validate
 
 DEFAULT_PORT = 7357
 
@@ -144,18 +144,23 @@ class Bridge:
             return {"ok": False, "path": str(self.autogen),
                     "error": str(e)[:200]}
 
-    def ai_review(self, screen: dict, context: str | None = None) -> dict:
-        """Valutazione qualitativa consultiva (D31), con contesto opzionale (D35)."""
+    def ai_review(self, screen: dict, context: str | None = None,
+                  platform: str | None = None) -> dict:
+        """Valutazione qualitativa consultiva (D31), con contesto opzionale (D35)
+        e piattaforma dichiarata (D39)."""
         from . import ai as _ai
         from . import patcher
         p, model, config = self._ai_provider()
         if p is None:
             return {"error": "Provider AI non configurato: lancia `dck ai`"}
-        findings = validate(screen, self.rules, self.tokens, self.catalog)
+        platform = self._resolve_platform(screen, platform)
+        applicable = rules_for_platform(self.rules, platform)
+        findings = validate(screen, self.rules, self.tokens, self.catalog,
+                            platform=platform)
         messages = patcher.build_review_prompt(screen, findings, context=context,
-                                               rules=self.rules)
-        self._log(f"→ /review: {p.label} · {model} — mando screen JSON, "
-                  f"{len(findings)} finding, regolamento completo"
+                                               rules=applicable, platform=platform)
+        self._log(f"→ /review [{platform}]: {p.label} · {model} — mando screen JSON, "
+                  f"{len(findings)} finding, regolamento {platform}"
                   f"{' + contesto utente' if context else ''}")
         for m in messages:
             self._log_block(f"PROMPT → AI [{m['role']}]", m["content"])
@@ -170,18 +175,23 @@ class Bridge:
             self._log(f"  ✗ provider irraggiungibile: {e}")
             return {"error": f"Il provider non risponde: {e}"}
 
-    def ai_fix(self, screen: dict, context: str | None = None) -> dict:
-        """Patch AI gated dal validatore (D31/D35). Se accettata, salva in
-        imports/ e rigenera il progetto Expo (D36)."""
+    def ai_fix(self, screen: dict, context: str | None = None,
+               platform: str | None = None) -> dict:
+        """Patch AI gated dal validatore (D31/D35), con piattaforma (D39).
+        Se accettata, salva in imports/ e rigenera il progetto Expo (D36)."""
         from . import ai as _ai
         from . import patcher
         p, model, config = self._ai_provider()
         if p is None:
             return {"error": "Provider AI non configurato: lancia `dck ai`"}
-        findings = validate(screen, self.rules, self.tokens, self.catalog)
+        platform = self._resolve_platform(screen, platform)
+        applicable = rules_for_platform(self.rules, platform)
+        findings = validate(screen, self.rules, self.tokens, self.catalog,
+                            platform=platform)
 
         def validate_fn(scr):
-            fs = validate(scr, self.rules, self.tokens, self.catalog)
+            fs = validate(scr, self.rules, self.tokens, self.catalog,
+                          platform=platform)
             return [f for f in fs if f.severity == "error"], \
                    [f for f in fs if f.severity == "warning"]
 
@@ -196,14 +206,15 @@ class Bridge:
             self._log_block("RISPOSTA ← AI (patch grezza)", raw)
             return raw
 
-        self._log(f"→ /fix: {p.label} · {model} — il validatore fara' da "
+        self._log(f"→ /fix [{platform}]: {p.label} · {model} — il validatore fara' da "
                   f"gatekeeper sulla patch"
                   f"{' (contesto utente attivo)' if context else ''}")
         t0 = time.monotonic()
         try:
             result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
                                       token_paths=list(self.tokens.flat),
-                                      context=context, rules=self.rules)
+                                      context=context, rules=applicable,
+                                      platform=platform)
         except Exception as e:
             self._log(f"  ✗ provider irraggiungibile: {e}")
             return {"error": f"Il provider non risponde: {e}"}
@@ -251,8 +262,10 @@ class Bridge:
                     spacing.append({"path": path, "value": num})
         return {"hex_to_token": hex_to_token, "spacing": spacing, "flat": flat}
 
-    def validate_screen(self, screen: dict) -> dict:
-        findings = validate(screen, self.rules, self.tokens, self.catalog)
+    def validate_screen(self, screen: dict, platform: str | None = None) -> dict:
+        platform = self._resolve_platform(screen, platform)
+        findings = validate(screen, self.rules, self.tokens, self.catalog,
+                            platform=platform)
         return {
             "findings": [
                 {"severity": f.severity, "rule_id": f.rule_id, "node_id": f.node_id,
@@ -262,15 +275,32 @@ class Bridge:
             ],
             "errors": len([f for f in findings if f.severity == "error"]),
             "exceptions": screen.get("meta", {}).get("exceptions_applied", []),
+            "platform": platform,
         }
+
+    @staticmethod
+    def _resolve_platform(screen: dict, platform: str | None) -> str:
+        """Priorita': scelta esplicita (plugin/CLI) > meta.platform salvata
+        > 'both' (comportamento storico)."""
+        from .validator import PLATFORMS
+        for candidate in (platform,
+                          (screen.get("meta", {}) or {}).get("platform")):
+            if candidate in PLATFORMS:
+                return candidate
+        return "both"
 
     @staticmethod
     def _sha(text: str) -> str:
         import hashlib
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
-    def import_screen(self, screen: dict, assets: list | None = None) -> dict:
-        result = self.validate_screen(screen)
+    def import_screen(self, screen: dict, assets: list | None = None,
+                      platform: str | None = None) -> dict:
+        # D39: la piattaforma scelta nel plugin diventa parte del contratto
+        # (meta.platform) — review/fix/trace la ereditano da qui.
+        platform = self._resolve_platform(screen, platform)
+        screen.setdefault("meta", {})["platform"] = platform
+        result = self.validate_screen(screen, platform)
         out_dir = self.root / "imports"
         out_dir.mkdir(exist_ok=True)
         screen_id = screen.get("meta", {}).get("id", "screen")
@@ -280,6 +310,7 @@ class Bridge:
         self._log(f"→ /import dal plugin: screen '{screen_id}' "
                   f"({self._count_nodes(screen.get('root', {}))} nodi, "
                   f"{len(assets or [])} asset in arrivo) — "
+                  f"piattaforma: {platform} — "
                   f"validatore: {result['errors']} errori, "
                   f"{len(result['findings']) - result['errors']} warning")
 
@@ -408,18 +439,22 @@ def make_handler(bridge: Bridge):
                 self._send(400, {"error": "JSON non valido"})
                 return
             screen = payload.get("screen", payload)
+            platform = payload.get("platform")
             if self.path == "/validate":
-                result = bridge.validate_screen(screen)
-                bridge._log(f"→ /validate: {result['errors']} errori, "
+                result = bridge.validate_screen(screen, platform)
+                bridge._log(f"→ /validate [{result['platform']}]: {result['errors']} errori, "
                             f"{len(result['findings']) - result['errors']} warning "
                             f"(nessuna scrittura)")
                 self._send(200, result)
             elif self.path == "/import":
-                self._send(200, bridge.import_screen(screen, assets=payload.get("assets")))
+                self._send(200, bridge.import_screen(screen, assets=payload.get("assets"),
+                                                     platform=platform))
             elif self.path == "/review":
-                self._send(200, bridge.ai_review(screen, context=payload.get("context")))
+                self._send(200, bridge.ai_review(screen, context=payload.get("context"),
+                                                 platform=platform))
             elif self.path == "/fix":
-                self._send(200, bridge.ai_fix(screen, context=payload.get("context")))
+                self._send(200, bridge.ai_fix(screen, context=payload.get("context"),
+                                              platform=platform))
             else:
                 self._send(404, {"error": "endpoint sconosciuto"})
 

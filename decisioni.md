@@ -256,3 +256,36 @@ Richiesta: vedere ESATTAMENTE cosa viene inviato all'AI e cosa torna indietro.
    e in `ai_review`, cioe' nel bridge: patcher e provider restano invariati.
 
 129 test OK.
+
+## D39 — Piattaforma dichiarata: iOS / Android / Custom (2026-07)
+
+Richiesta: distinguere design iOS, Android e custom — il check e l'AI devono
+applicare le regole giuste per la piattaforma per cui il design e' pensato.
+
+1. **Selettore nel plugin** — menu Piattaforma sopra "Esporta selezione"
+   (iOS default, Android, Custom, Entrambe). Inviata con /import, /validate,
+   /review, /fix; cambiarla rivalida subito lo screen corrente (senza scrivere).
+   Il bridge la salva in `meta.platform`: diventa parte del contratto, ereditata
+   da review/fix/trace/CLI. Caricando uno screen dal bridge il selettore si allinea.
+2. **Semantica nel validatore** — `rules_for_platform()` (funzione pura):
+   - ios/android: regole both + quelle della piattaforma;
+   - both: tutte (comportamento storico);
+   - **custom = la quadra**: regole both invariate; check presenti su entrambe le
+     piattaforme (es. touch_target_min 44pt iOS / 48dp Android) FUSI in una regola
+     `custom.*` col vincolo piu' stretto (il design funziona su entrambe);
+     convenzioni di una sola piattaforma (es. max 5 tab iOS) retrocesse a
+     warning: utili da sapere, non bloccanti per un linguaggio proprio.
+   Effetto reale su imported-home: ios 10 err/12 warn, android 9/13,
+   custom 9/14, both 12/13 (niente piu' doppioni iOS+Android sullo stesso nodo).
+3. **AI calibrata** — `_platform_block()` nei prompt di fix e review: per custom
+   il modello sa che deve trovare la quadra (vincoli stretti si', convenzioni di
+   una sola piattaforma no). Il regolamento mostrato all'AI e' quello filtrato/
+   fuso per la piattaforma — mai regole che il validatore non applichera'.
+4. **CLI** — `--platform` accetta anche `custom` (validate, import, fix, review);
+   fix/review default: meta.platform del file, altrimenti both. `dck trace`
+   mostra la piattaforma nella fase LETTURA e VALIDAZIONE.
+
+Nota: alcune regole in ios-hig.yaml sono dichiarate `platform: both`
+(accessibilita' universale) pur avendo id ios.* — e' voluto.
+
+134 test OK.

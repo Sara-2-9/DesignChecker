@@ -449,6 +449,86 @@ CHECKS = {
 SCREEN_SCOPE_CHECKS = {"single_primary_action", "max_instances",
                        "nav_pattern_present", "token_group_exists"}
 
+PLATFORMS = ("ios", "android", "both", "custom")
+
+# Suffisso che spiega la "quadra" nelle regole fuse e downgrade (D39)
+_CUSTOM_MERGED_SUFFIX = (" — [custom: vincolo fuso, vale il piu' stretto "
+                         "tra iOS e Android]")
+_CUSTOM_DOWNGRADE_SUFFIX = (" — [custom: convenzione di una sola piattaforma, "
+                            "adattabile in un design cross-platform]")
+
+
+def _stricter(rules_group: list[dict]) -> dict:
+    """Tra regole con lo stesso check su piattaforme diverse, la piu' severa:
+    vince il 'min' piu' alto (o il 'max' piu' basso)."""
+    def key(rule: dict):
+        params = rule.get("params", {}) or {}
+        return (params.get("min", 0) or 0, -(params.get("max", 10**9) or 10**9))
+    return max(rules_group, key=key)
+
+
+def rules_for_platform(rules: list[dict], platform: str) -> list[dict]:
+    """Regole applicabili per la piattaforma dichiarata del design (D39).
+
+    - ios / android : regole 'both' + quelle della piattaforma scelta
+    - both          : tutte (comportamento storico: i doppi standard
+                      iOS+Android compaiono entrambi)
+    - custom        : design cross-platform. La "quadra":
+                      · regole 'both' (WCAG, design-system, expo) invariate;
+                      · check presenti su ENTRAMBE le piattaforme (es.
+                        touch_target_min: iOS 44pt, Android 48dp) fusi in una
+                        regola custom.* col vincolo PIU' STRETTO (cosi' il
+                        design funziona su entrambe);
+                      · convenzioni di una sola piattaforma (es. massimo 5 tab
+                        iOS) retrocesse a warning: buone da sapere, non
+                        bloccanti per un linguaggio custom.
+    """
+    if platform == "both" or platform not in PLATFORMS:
+        return list(rules)
+    if platform in ("ios", "android"):
+        return [r for r in rules
+                if r.get("platform", "both") in ("both", platform)]
+
+    # ---- custom: la quadra
+    common = [r for r in rules if r.get("platform", "both") == "both"]
+    ios_rules = [r for r in rules if r.get("platform") == "ios"]
+    android_rules = [r for r in rules if r.get("platform") == "android"]
+
+    def group_by_check(items: list[dict]) -> dict[str, list[dict]]:
+        groups: dict[str, list[dict]] = {}
+        for r in items:
+            groups.setdefault(r.get("check") or r["id"], []).append(r)
+        return groups
+
+    ios_by_check = group_by_check(ios_rules)
+    android_by_check = group_by_check(android_rules)
+
+    merged: list[dict] = []
+    downgraded: list[dict] = []
+    for check_name, group in ios_by_check.items():
+        if check_name in android_by_check:
+            combined = group + android_by_check.pop(check_name)
+            winner = dict(_stricter(combined))
+            winner["id"] = f"custom.{check_name}"
+            winner["message"] = (winner.get("message", "")
+                                 + _CUSTOM_MERGED_SUFFIX)
+            merged.append(winner)
+        else:
+            for r in group:
+                soft = dict(r)
+                soft["severity"] = "warning"
+                soft["message"] = (soft.get("message", "")
+                                   + _CUSTOM_DOWNGRADE_SUFFIX)
+                downgraded.append(soft)
+    for group in android_by_check.values():
+        for r in group:
+            soft = dict(r)
+            soft["severity"] = "warning"
+            soft["message"] = (soft.get("message", "")
+                               + _CUSTOM_DOWNGRADE_SUFFIX)
+            downgraded.append(soft)
+    return common + merged + downgraded
+
 
 def validate(screen: dict, rules: list[dict], tokens: TokenStore,
              catalog: dict, platform: str = "both") -> list[Finding]:
@@ -464,12 +544,9 @@ def validate(screen: dict, rules: list[dict], tokens: TokenStore,
     list(walk(screen.get("root", {}), None, ctx))
 
     findings: list[Finding] = []
-    for rule in rules:
+    for rule in rules_for_platform(rules, platform):
         if rule.get("phase", "validate") != "validate":
             continue  # regole di codegen: documentate, non eseguite sul JSON
-        rule_platform = rule.get("platform", "both")
-        if platform != "both" and rule_platform not in ("both", platform):
-            continue
         check_fn = CHECKS.get(rule.get("check", ""))
         if check_fn is None:
             continue

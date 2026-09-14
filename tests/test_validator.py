@@ -107,3 +107,59 @@ class TestValidatorImportedScreen(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPlatformCustom(unittest.TestCase):
+    """D39: selezione piattaforma — ios/android filtrano, custom fonde."""
+
+    def test_ios_esclude_regole_android(self):
+        from designchecker.validator import rules_for_platform
+        rules, _, _ = _setup()
+        ids = {r["id"] for r in rules_for_platform(rules, "ios")}
+        self.assertIn("ios.touch-target.min", ids)
+        self.assertFalse(any(i.startswith("m3.") for i in ids))
+        self.assertIn("wcag.1.4.3.contrast-text", ids)  # le 'both' restano
+
+    def test_android_esclude_regole_ios(self):
+        from designchecker.validator import rules_for_platform
+        rules, _, _ = _setup()
+        ids = {r["id"] for r in rules_for_platform(rules, "android")}
+        # le regole SOLO iOS spariscono (alcune ios.* sono dichiarate
+        # platform: both perche' universali, es. accessibilita')
+        self.assertNotIn("ios.touch-target.min", ids)
+        self.assertNotIn("ios.tab.max-items", ids)
+        self.assertIn("m3.touch-target.min", ids)
+
+    def test_custom_fonde_touch_target_al_piu_stretto(self):
+        from designchecker.validator import rules_for_platform
+        rules, _, _ = _setup()
+        custom = rules_for_platform(rules, "custom")
+        merged = next(r for r in custom if r["id"] == "custom.touch_target_min")
+        self.assertEqual(merged["params"]["min"], 48)  # max(44 iOS, 48 Android)
+        self.assertIn("custom", merged["message"])
+        # le versioni originali non compaiono piu'
+        ids = {r["id"] for r in custom}
+        self.assertNotIn("ios.touch-target.min", ids)
+        self.assertNotIn("m3.touch-target.min", ids)
+
+    def test_custom_retorce_convenzioni_singola_piattaforma_a_warning(self):
+        from designchecker.validator import rules_for_platform
+        rules, _, _ = _setup()
+        custom = {r["id"]: r for r in rules_for_platform(rules, "custom")}
+        tab_rule = custom["ios.tab.max-items"]  # esiste solo su iOS
+        self.assertEqual(tab_rule["severity"], "warning")
+        self.assertIn("adattabile", tab_rule["message"])
+
+    def test_custom_touch_45_passa_ios_ma_non_custom(self):
+        """45pt: ok per iOS (>=44), ko per la quadra custom (<48)."""
+        rules, catalog, tokens = _setup()
+        screen = {"schema_version": "0.1", "meta": {"id": "t45"},
+                  "root": {"id": "r", "type": "Screen", "children": [
+                      {"id": "btn", "type": "Button",
+                       "props": {"height": 45}}]}}
+        ios_ids = {f.rule_id for f in validate(screen, rules, tokens, catalog,
+                                               platform="ios")}
+        custom_ids = {f.rule_id for f in validate(screen, rules, tokens, catalog,
+                                                  platform="custom")}
+        self.assertNotIn("ios.touch-target.min", ios_ids)
+        self.assertIn("custom.touch_target_min", custom_ids)

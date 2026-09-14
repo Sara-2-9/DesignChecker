@@ -43,6 +43,7 @@
   #ai-out .critique { background: #26262e; border: 1px solid #3a3a4a; border-radius: 6px; padding: 8px; white-space: pre-wrap; }
   #ai-out .logline { color: #9a9a9a; font-size: 11px; padding: 1px 0; }
   label.toggle { display: flex; gap: 6px; align-items: center; color: #ccc; }
+  select { background: #26262e; color: #eee; border: 1px solid #3a3a4a; border-radius: 6px; padding: 4px 6px; font-size: 12px; }
   hr { border: 0; border-top: 1px solid #333; margin: 12px 0; }
   .section { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 6px; }
 </style>
@@ -52,6 +53,16 @@
   <div class="row">
     <span class="dot off" id="dot"></span>
     <span id="status">bridge non raggiungibile — avvia: dck serve</span>
+  </div>
+  <div class="row">
+    <label class="toggle" for="platform">Piattaforma:
+      <select id="platform">
+        <option value="ios" selected>iOS</option>
+        <option value="android">Android</option>
+        <option value="custom">Custom (quadra iOS/Android)</option>
+        <option value="both">Entrambe (tutte le regole)</option>
+      </select>
+    </label>
   </div>
   <div class="row">
     <button id="btn-export" disabled>Esporta selezione e valida</button>
@@ -167,10 +178,12 @@ async function validateScreen(screen, assets) {
   const data = await bridge('/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ screen: screen, assets: assets || [] }),
+    body: JSON.stringify({ screen: screen, assets: assets || [],
+                           platform: $('platform').value }),
   });
   renderFindings(data);
-  $('status').textContent = 'audit salvato: ' + (data.path || '').split('/').pop();
+  $('status').textContent = 'audit salvato: ' + (data.path || '').split('/').pop() +
+    ' [' + (data.platform || $('platform').value) + ']';
   appStatus(data.app);
 }
 
@@ -204,6 +217,9 @@ async function ensureScreen() {
   if (id) {
     try {
       lastScreen = await bridge('/screen/' + encodeURIComponent(id));
+      if (lastScreen.meta && lastScreen.meta.platform) {
+        $('platform').value = lastScreen.meta.platform;  // D39: eredita la piattaforma dichiarata
+      }
       $('status').textContent = 'screen "' + id + '" caricato dal bridge';
       return true;
     } catch (e) { /* cade nel messaggio sotto */ }
@@ -221,7 +237,8 @@ $('btn-review').onclick = async () => {
     const data = await bridge('/review', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined }),
+      body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined,
+                             platform: $('platform').value }),
     });
     if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
     else {
@@ -243,7 +260,8 @@ $('btn-fix').onclick = async () => {
     const data = await bridge('/fix', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined }),
+      body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined,
+                             platform: $('platform').value }),
     });
     if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
     else {
@@ -258,7 +276,7 @@ $('btn-fix').onclick = async () => {
         renderFindings(await bridge('/validate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ screen: data.screen }),
+          body: JSON.stringify({ screen: data.screen, platform: $('platform').value }),
         }));
         parent.postMessage({ pluginMessage: { type: 'render', screen: data.screen } }, '*');
       }
@@ -298,6 +316,21 @@ window.onmessage = async (event) => {
 
 $('btn-export').onclick = () => {
   parent.postMessage({ pluginMessage: { type: 'export-selection' } }, '*');
+};
+
+// D39: cambiare piattaforma rivalida subito lo screen corrente (senza scrivere)
+$('platform').onchange = async () => {
+  if (!lastScreen) return;
+  try {
+    renderFindings(await bridge('/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ screen: lastScreen, platform: $('platform').value }),
+    }));
+    $('status').textContent = 'rivalidato per piattaforma: ' + $('platform').value;
+  } catch (e) {
+    $('status').textContent = 'bridge irraggiungibile durante la rivalidazione';
+  }
 };
 
 $('watch').onchange = (e) => {

@@ -52,7 +52,7 @@ def main(argv: list[str] | None = None) -> None:
                             help="components.catalog.yaml (default: radice progetto)")
     p_validate.add_argument("--rules", type=Path, default=None,
                             help="Cartella delle regole (default: rules/ del progetto)")
-    p_validate.add_argument("--platform", choices=["ios", "android", "both"],
+    p_validate.add_argument("--platform", choices=["ios", "android", "both", "custom"],
                             default="both", help="Piattaforma target")
 
     p_generate = sub.add_parser("generate",
@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> None:
                           help="figma: nome del frame/schermata · code: percorso del file .tsx")
     p_import.add_argument("--tokens", type=Path, default=None)
     p_import.add_argument("--catalog", type=Path, default=None)
-    p_import.add_argument("--platform", choices=["ios", "android", "both"], default="both")
+    p_import.add_argument("--platform", choices=["ios", "android", "both", "custom"], default="both")
     p_import.add_argument("--fixture", type=Path, default=None,
                           help="Usa un file JSON locale invece della API (per test)")
 
@@ -109,7 +109,8 @@ def main(argv: list[str] | None = None) -> None:
     p_fix.add_argument("screen", type=Path, help="Percorso dello screen JSON")
     p_fix.add_argument("--tokens", type=Path, default=None)
     p_fix.add_argument("--catalog", type=Path, default=None)
-    p_fix.add_argument("--platform", choices=["ios", "android", "both"], default="both")
+    p_fix.add_argument("--platform", choices=["ios", "android", "both", "custom"],
+                   default=None, help="Piattaforma del design; default: quella in meta.platform, altrimenti both (D39)")
     p_fix.add_argument("--context", default=None,
                        help="Contesto opzionale sull'app per calibrare l'AI (D35)")
 
@@ -117,7 +118,8 @@ def main(argv: list[str] | None = None) -> None:
     p_review.add_argument("screen", type=Path, help="Percorso dello screen JSON")
     p_review.add_argument("--tokens", type=Path, default=None)
     p_review.add_argument("--catalog", type=Path, default=None)
-    p_review.add_argument("--platform", choices=["ios", "android", "both"], default="both")
+    p_review.add_argument("--platform", choices=["ios", "android", "both", "custom"],
+                      default=None, help="Piattaforma del design; default: quella in meta.platform, altrimenti both (D39)")
     p_review.add_argument("--context", default=None,
                           help="Contesto opzionale sull'app per calibrare l'AI (D35)")
 
@@ -232,8 +234,9 @@ def _trace_command(args, root: Path, rules) -> None:
 
     print("1. LETTURA (input del sistema)")
     kb = max(args.screen.stat().st_size // 1024, 1)
+    platform = (screen.get("meta", {}) or {}).get("platform", "both")
     print(f"   screen JSON : {args.screen} ({kb} KB, id '{sid}', "
-          f"{count(screen.get('root', {}))} nodi)")
+          f"{count(screen.get('root', {}))} nodi, piattaforma: {platform})")
     by_file: dict[str, list] = {}
     for r in rules:
         by_file.setdefault(r.get("_file", "?"), []).append(r)
@@ -242,10 +245,10 @@ def _trace_command(args, root: Path, rules) -> None:
     print(f"   token       : examples/tokens.json ({len(tokens.flat)} token)")
     print(f"   catalogo    : components.catalog.yaml ({len(catalog)} componenti)")
 
-    findings = validate(screen, rules, tokens, catalog)
+    findings = validate(screen, rules, tokens, catalog, platform=platform)
     errors = [f for f in findings if f.severity == "error"]
     warnings = [f for f in findings if f.severity == "warning"]
-    print("\n2. VALIDAZIONE (Python deterministico, zero AI — l'arbitro)")
+    print(f"\n2. VALIDAZIONE (Python deterministico, zero AI — l'arbitro) [{platform}]")
     print(f"   → {len(errors)} errori, {len(warnings)} warning")
     for f in findings[:6]:
         print(f"     [{f.severity}] {f.rule_id} su '{f.node_id}'")
@@ -700,7 +703,8 @@ def _ai_screen_command(args, root: Path, rules) -> None:
     screen = load_screen(args.screen)
     tokens = TokenStore(load_tokens(args.tokens or (root / "examples" / "tokens.json")))
     catalog = load_catalog(args.catalog or (root / "components.catalog.yaml"))
-    findings = validate(screen, rules, tokens, catalog, platform=args.platform)
+    platform = args.platform or (screen.get("meta", {}) or {}).get("platform") or "both"
+    findings = validate(screen, rules, tokens, catalog, platform=platform)
 
     def chat_fn(messages):
         return _ai.chat(p, model, messages, config)
@@ -708,9 +712,10 @@ def _ai_screen_command(args, root: Path, rules) -> None:
     name = screen.get("meta", {}).get("name", str(args.screen))
 
     if args.command == "review":
-        print(f"── Valutazione AI ({p.label} · {model}) di '{name}' ──\n")
+        print(f"── Valutazione AI ({p.label} · {model} · {platform}) di '{name}' ──\n")
         messages = patcher.build_review_prompt(screen, findings,
-                                               context=args.context, rules=rules)
+                                               context=args.context, rules=rules,
+                                               platform=platform)
         try:
             print(chat_fn(messages).strip())
         except Exception as e:
@@ -720,16 +725,17 @@ def _ai_screen_command(args, root: Path, rules) -> None:
         return
 
     # fix
-    print(f"── Fix AI ({p.label} · {model}) su '{name}' ──")
+    print(f"── Fix AI ({p.label} · {model} · {platform}) su '{name}' ──")
 
     def validate_fn(scr):
-        fs = validate(scr, rules, tokens, catalog, platform=args.platform)
+        fs = validate(scr, rules, tokens, catalog, platform=platform)
         return [f for f in fs if f.severity == "error"], \
                [f for f in fs if f.severity == "warning"]
 
     result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
                               token_paths=list(tokens.flat),
-                              context=args.context, rules=rules)
+                              context=args.context, rules=rules,
+                              platform=platform)
     for line in result["log"]:
         print(f"  {line}")
     if result["applied"]:

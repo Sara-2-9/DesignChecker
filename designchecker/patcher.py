@@ -162,8 +162,28 @@ def _context_block(context: str | None) -> str:
             "\"\"\"\n")
 
 
+def _platform_block(platform: str | None) -> str:
+    """D39: la piattaforma dichiarata calibra il giudizio del modello."""
+    lines = {
+        "ios": ("PIATTAFORMA: il design e' pensato per iOS. Applica le "
+                "convenzioni Apple HIG; le convenzioni Android/Material non "
+                "si applicano qui."),
+        "android": ("PIATTAFORMA: il design e' pensato per Android. Applica le "
+                    "convenzioni Material Design 3; le convenzioni iOS/HIG non "
+                    "si applicano qui."),
+        "custom": ("PIATTAFORMA: il design e' CUSTOM (cross-platform, un "
+                   "linguaggio proprio). Trova la quadra tra iOS e Android: "
+                   "valgono i vincoli piu' stretti tra i due mondi (es. touch "
+                   "target 48, che copre entrambi), mentre le convenzioni di "
+                   "una sola piattaforma (es. il massimo di 5 tab iOS) sono "
+                   "adattabili — segnalale, non imporle."),
+    }
+    return lines.get(platform or "", "")
+
+
 def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = None,
-                     context: str | None = None, rules: list[dict] | None = None) -> list:
+                     context: str | None = None, rules: list[dict] | None = None,
+                     platform: str | None = None) -> list:
     """Messaggi per la patch: schema minimo, findings, nodi coinvolti.
     token_paths: i path dei token REALMENTE disponibili (TokenStore.flat) —
     senza, il modello indovinerebbe nomi inesistenti."""
@@ -196,7 +216,8 @@ def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = No
         "(es. hex) invece di inventare un riferimento.\n"
         "- Niente testo fuori dal JSON, niente commenti.\n"
         "Se e' presente la sezione CONTESTO DELL'APP, descrive lo scopo del "
-        "prodotto: rispettala (non 'correggere' scelte motivate dal contesto)."
+        "prodotto: rispettala (non 'correggere' scelte motivate dal contesto).\n"
+        + _platform_block(platform)
     )
     user = (
         f"VIOLAZIONI:\n{flist}\n"
@@ -213,7 +234,8 @@ def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = No
 
 
 def build_review_prompt(screen: dict, findings: list, context: str | None = None,
-                        rules: list[dict] | None = None) -> list:
+                        rules: list[dict] | None = None,
+                        platform: str | None = None) -> list:
     """Messaggi per la valutazione qualitativa (consultiva, non tocca il JSON)."""
     flist = "\n".join(f"- [{f.severity}] {f.rule_id} '{f.node_id}': {f.message}"
                       for f in findings) or "(nessuna violazione deterministica)"
@@ -229,7 +251,8 @@ def build_review_prompt(screen: dict, findings: list, context: str | None = None
         "Se e' presente la sezione CONTESTO DELL'APP, calibra il giudizio sullo "
         "scopo del prodotto (es. un'app creativa tollera scelte che una bancaria "
         "non tollera). NON proporre JSON, NON ripetere le violazioni gia' "
-        "elencate: aggiungi giudizio, non rumore. Massimo 350 parole."
+        "elencate: aggiungi giudizio, non rumore. Massimo 350 parole.\n"
+        + _platform_block(platform)
     )
     user = (
         f"VIOLAZIONI DETERMINISTICHE (gia' note, non ripeterle):\n{flist}\n"
@@ -246,7 +269,8 @@ def build_review_prompt(screen: dict, findings: list, context: str | None = None
 
 def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
              max_attempts: int = MAX_ATTEMPTS, token_paths: list | None = None,
-             context: str | None = None, rules: list[dict] | None = None) -> dict:
+             context: str | None = None, rules: list[dict] | None = None,
+             platform: str | None = None) -> dict:
     """Tenta la correzione automatica.
 
     validate_fn(screen_dict) -> (errors: list, warnings: list)
@@ -264,7 +288,7 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
                 "before": before, "after": before}
 
     messages = build_fix_prompt(screen, findings, token_paths,
-                                context=context, rules=rules)
+                                context=context, rules=rules, platform=platform)
     for attempt in range(1, max_attempts + 1):
         log.append(f"Tentativo {attempt}/{max_attempts}: richiesta patch al modello…")
         try:
