@@ -337,6 +337,64 @@ class TestBridgeAutogen(unittest.TestCase):
         self.assertNotIn("app", result)
 
 
+class TestBridgeLog(unittest.TestCase):
+    """D37: log live del bridge — ogni azione visibile, --quiet la spegne."""
+
+    @classmethod
+    def tearDownClass(cls):
+        imports = ROOT / "imports"
+        (imports / "test-log.screen.json").unlink(missing_ok=True)
+        (imports / ".test-log.export.sha256").unlink(missing_ok=True)
+
+    def _screen(self):
+        return {"schema_version": "0.1",
+                "meta": {"id": "test-log", "name": "T"},
+                "root": {"id": "r", "type": "Screen",
+                         "children": [{"id": "t", "type": "Text",
+                                       "props": {"content": "ciao"}}]}}
+
+    def test_log_visibile_di_default(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            Bridge(ROOT).import_screen(self._screen())
+        out = buf.getvalue()
+        self.assertIn("/import", out)
+        self.assertIn("test-log", out)
+        self.assertIn("scritto imports/test-log.screen.json", out)
+
+    def test_log_silenziato(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            Bridge(ROOT, log=False).import_screen(self._screen())
+        self.assertEqual(buf.getvalue(), "")
+
+
+class TestTraceCommand(unittest.TestCase):
+    """D37: `dck trace` stampa la mappa completa della pipeline."""
+
+    def test_trace_stampa_tutte_le_fasi(self):
+        import io
+        from contextlib import redirect_stdout
+        from types import SimpleNamespace
+        from designchecker.cli import _trace_command
+        from designchecker.loader import load_rules
+
+        args = SimpleNamespace(screen=ROOT / "examples" / "home.screen.json")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            _trace_command(args, ROOT, load_rules(ROOT / "rules"))
+        out = buf.getvalue()
+        for sezione in ("1. LETTURA", "2. VALIDAZIONE", "3. BRIDGE",
+                        "4. AI", "5. CODEGEN", "6. APP"):
+            self.assertIn(sezione, out)
+        self.assertIn("src/screens/home/index.tsx", out)
+        self.assertIn("home.screen.json", out)
+
+
 class TestBridgeAI(unittest.TestCase):
     """Endpoint AI del bridge (D31) con provider finto: niente rete."""
 

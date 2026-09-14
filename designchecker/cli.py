@@ -39,6 +39,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    p_trace = sub.add_parser("trace",
+                             help="Mappa completa della pipeline di uno screen: "
+                                  "file letti/scritti, cosa parte verso l'AI (D37)")
+    p_trace.add_argument("screen", type=Path, help="Percorso dello screen JSON")
+
     p_validate = sub.add_parser("validate", help="Valida uno screen JSON")
     p_validate.add_argument("screen", type=Path, help="Percorso dello screen JSON")
     p_validate.add_argument("--tokens", type=Path, default=None,
@@ -86,6 +91,8 @@ def main(argv: list[str] | None = None) -> None:
 
     p_serve = sub.add_parser("serve", help="Bridge locale per il plugin Figma (D29)")
     p_serve.add_argument("--port", type=int, default=7357)
+    p_serve.add_argument("--quiet", action="store_true",
+                         help="Niente log delle attivita' (default: log visibile, D37)")
     p_serve.add_argument("--autogen", nargs="?", const="~/Desktop/dck-preview",
                          default=None, metavar="PATH",
                          help="Rigenera il progetto Expo a ogni export/fix (D36). "
@@ -178,7 +185,11 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "serve":
         from .serve import serve
-        serve(root, port=args.port, autogen=args.autogen)
+        serve(root, port=args.port, autogen=args.autogen, log=not args.quiet)
+        return
+
+    if args.command == "trace":
+        _trace_command(args, root, rules)
         return
 
     if args.command == "ai":
@@ -195,6 +206,81 @@ def main(argv: list[str] | None = None) -> None:
 
 def _config_path() -> Path:
     return Path.home() / ".designchecker" / "config.json"
+
+
+def _trace_command(args, root: Path, rules) -> None:
+    """D37: mappa completa della pipeline di uno screen — cosa viene letto,
+    cosa viene scritto, cosa parte verso l'AI e cosa resta deterministico."""
+    from .codegen import Codegen
+
+    if not args.screen.exists():
+        print(f"File non trovato: {args.screen}", file=sys.stderr)
+        sys.exit(2)
+    screen = load_screen(args.screen)
+    tokens = TokenStore(load_tokens(root / "examples" / "tokens.json"))
+    catalog = load_catalog(root / "components.catalog.yaml")
+    sid = screen.get("meta", {}).get("id", "screen")
+
+    def count(node: dict) -> int:
+        return 1 + sum(count(c) for c in node.get("children", []) or [])
+
+    print(f"\n═══ TRACCIA PIPELINE: {args.screen} ═══\n")
+
+    print("1. LETTURA (input del sistema)")
+    kb = max(args.screen.stat().st_size // 1024, 1)
+    print(f"   screen JSON : {args.screen} ({kb} KB, id '{sid}', "
+          f"{count(screen.get('root', {}))} nodi)")
+    by_file: dict[str, list] = {}
+    for r in rules:
+        by_file.setdefault(r.get("_file", "?"), []).append(r)
+    print(f"   regole      : {len(rules)} da rules/ — "
+          + ", ".join(f"{f} ({len(rs)})" for f, rs in by_file.items()))
+    print(f"   token       : examples/tokens.json ({len(tokens.flat)} token)")
+    print(f"   catalogo    : components.catalog.yaml ({len(catalog)} componenti)")
+
+    findings = validate(screen, rules, tokens, catalog)
+    errors = [f for f in findings if f.severity == "error"]
+    warnings = [f for f in findings if f.severity == "warning"]
+    print("\n2. VALIDAZIONE (Python deterministico, zero AI — l'arbitro)")
+    print(f"   → {len(errors)} errori, {len(warnings)} warning")
+    for f in findings[:6]:
+        print(f"     [{f.severity}] {f.rule_id} su '{f.node_id}'")
+    if len(findings) > 6:
+        print(f"     … e altri {len(findings) - 6}")
+
+    imports = root / "imports"
+    assets_dir = imports / "assets" / sid
+    pngs = list(assets_dir.glob("*.png")) if assets_dir.is_dir() else []
+    print("\n3. BRIDGE (dck serve, solo localhost:7357) — all'export dal plugin:")
+    print(f"   scrive    : imports/{sid}.screen.json + sidecar .{sid}.export.sha256")
+    print(f"   asset     : imports/assets/{sid}/ ({len(pngs)} PNG, "
+          f"{sum(p.stat().st_size for p in pngs) // 1024} KB)")
+    print("   protezioni: backup .preexport.bak se il file cambia fuori dal canvas;")
+    print("               path asset sanitizzati; scritture solo dentro imports/")
+
+    config = _load_config()
+    ai_cfg = config.get("ai") or {}
+    print("\n4. AI (SOLO su tua richiesta: review / fix)")
+    if ai_cfg.get("provider"):
+        print(f"   provider : {ai_cfg.get('provider')} · modello {ai_cfg.get('model')}")
+    else:
+        print("   provider : non configurato (dck ai)")
+    print("   review → manda: screen JSON + finding + regolamento + contesto;")
+    print("            riceve: solo testo (parere consultivo, nessuna scrittura)")
+    print("   fix    → manda: lo stesso + lista dei token reali;")
+    print("            riceve: JSON Patch → il VALIDATORE la approva o rifiuta")
+    print("   chiavi  : ~/.designchecker/config.json (chmod 600, mai nel repo);")
+    print("             escono solo verso il provider che hai scelto")
+
+    codegen = Codegen(screen, tokens, catalog, assets_dir=assets_dir)
+    print("\n5. CODEGEN (Python deterministico, zero AI) — dck generate produce:")
+    for rel in sorted(codegen.full_project_files()):
+        print(f"     {rel}")
+    print(f"   + i PNG di imports/assets/{sid}/ copiati in src/assets/ come require()")
+
+    print("\n6. APP (toolchain Expo standard, non DesignChecker)")
+    print("   prima volta : cd <cartella> && npm install && npx expo start")
+    print("   poi         : Fast Refresh aggiorna l'app a ogni rigenerazione\n")
 
 
 def _load_config() -> dict:

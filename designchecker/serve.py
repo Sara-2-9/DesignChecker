@@ -22,6 +22,7 @@ l'output del modello passa SEMPRE dal validatore prima di toccare il JSON.
 from __future__ import annotations
 
 import json
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -36,12 +37,26 @@ DEFAULT_PORT = 7357
 class Bridge:
     """Logica degli endpoint, separata dal server (testabile senza rete)."""
 
-    def __init__(self, root: Path, autogen: Path | None = None):
+    def __init__(self, root: Path, autogen: Path | None = None,
+                 log: bool = True):
         self.root = root
         self.autogen = Path(autogen).expanduser() if autogen else None
+        self.log_enabled = log
         self.rules = load_rules(root / "rules")
         self.catalog = load_catalog(root / "components.catalog.yaml")
         self.tokens = TokenStore(load_tokens(root / "examples" / "tokens.json"))
+
+    # ---------------------------------------------------------- log attivita'
+
+    def _log(self, msg: str) -> None:
+        """Log live del bridge (D37): ogni azione visibile nel terminale."""
+        if self.log_enabled:
+            print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+    @staticmethod
+    def _count_nodes(node: dict) -> int:
+        return 1 + sum(Bridge._count_nodes(c)
+                       for c in node.get("children", []) or [])
 
     def _ai_config(self) -> dict:
         path = Path.home() / ".designchecker" / "config.json"
@@ -126,9 +141,17 @@ class Bridge:
         findings = validate(screen, self.rules, self.tokens, self.catalog)
         messages = patcher.build_review_prompt(screen, findings, context=context,
                                                rules=self.rules)
+        self._log(f"→ /review: {p.label} · {model} — mando screen JSON, "
+                  f"{len(findings)} finding, regolamento completo"
+                  f"{' + contesto utente' if context else ''}")
+        t0 = time.monotonic()
         try:
-            return {"critique": _ai.chat(p, model, messages, config).strip()}
+            critique = _ai.chat(p, model, messages, config).strip()
+            self._log(f"  ✓ parere ricevuto in {time.monotonic() - t0:.1f}s "
+                      f"({len(critique)} caratteri) — nessuna scrittura, e' consultivo")
+            return {"critique": critique}
         except Exception as e:
+            self._log(f"  ✗ provider irraggiungibile: {e}")
             return {"error": f"Il provider non risponde: {e}"}
 
     def ai_fix(self, screen: dict, context: str | None = None) -> dict:
@@ -149,12 +172,21 @@ class Bridge:
         def chat_fn(messages):
             return _ai.chat(p, model, messages, config)
 
+        self._log(f"→ /fix: {p.label} · {model} — il validatore fara' da "
+                  f"gatekeeper sulla patch"
+                  f"{' (contesto utente attivo)' if context else ''}")
+        t0 = time.monotonic()
         try:
             result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
                                       token_paths=list(self.tokens.flat),
                                       context=context, rules=self.rules)
         except Exception as e:
+            self._log(f"  ✗ provider irraggiungibile: {e}")
             return {"error": f"Il provider non risponde: {e}"}
+        for line in result.get("log", []):
+            self._log(f"  {line}")
+        self._log(f"  fix terminato in {time.monotonic() - t0:.1f}s — "
+                  f"{'APPLICATO' if result['applied'] else 'NESSUNA PATCH ACCETTATA'}")
         if result["applied"]:
             out_dir = self.root / "imports"
             out_dir.mkdir(exist_ok=True)
@@ -163,9 +195,17 @@ class Bridge:
             out_path.write_text(json.dumps(result["screen"], indent=2,
                                            ensure_ascii=False), encoding="utf-8")
             result["path"] = str(out_path)
+            self._log(f"  scritto imports/{screen_id}.screen.json "
+                      f"(versione corretta)")
             app = self._autogen_app(result["screen"])
             if app:
                 result["app"] = app
+                if app["ok"]:
+                    self._log(f"  autogen: {app['files']} file rigenerati in "
+                              f"{app['path']} · Metro: "
+                              f"{'attivo' if app['metro'] else 'non attivo'}")
+                else:
+                    self._log(f"  autogen FERMO: {app['error']}")
         return result
 
 
@@ -213,6 +253,11 @@ class Bridge:
         out_path = out_dir / f"{screen_id}.screen.json"
         sidecar = out_dir / f".{screen_id}.export.sha256"
         new_content = json.dumps(screen, indent=2, ensure_ascii=False)
+        self._log(f"→ /import dal plugin: screen '{screen_id}' "
+                  f"({self._count_nodes(screen.get('root', {}))} nodi, "
+                  f"{len(assets or [])} asset in arrivo) — "
+                  f"validatore: {result['errors']} errori, "
+                  f"{len(result['findings']) - result['errors']} warning")
 
         # Asset (D34): PNG esportati dal plugin (immagini/icone reali).
         # Path sanitizzato (solo basename) — mai scrivere fuori da imports/assets/.
@@ -235,6 +280,10 @@ class Bridge:
                     continue
             if saved_assets:
                 result["assets_saved"] = saved_assets
+                size_kb = sum(f.stat().st_size for f in assets_dir.iterdir()
+                              if f.is_file()) // 1024
+                self._log(f"  asset: {saved_assets} PNG salvati in "
+                          f"imports/assets/{screen_id}/ ({size_kb} KB totali)")
 
         # Anti-perdita: se il file su disco e' stato modificato FUORI dal
         # canale export (es. un fix AI) rispetto all'ultimo export noto,
@@ -250,15 +299,24 @@ class Bridge:
                     f"la versione modificata e' salva in {bak.name}. Attenzione: "
                     "il frame esportato e' piu' vecchio del fix — aggiorna il "
                     "frame renderizzato, non quello originale.")
+                self._log(f"  sync guard: il file era modificato fuori dal "
+                          f"canvas — backup in {bak.name}")
 
         out_path.write_text(new_content, encoding="utf-8")
         sidecar.write_text(self._sha(new_content), encoding="utf-8")
         result["path"] = str(out_path)
+        self._log(f"  scritto imports/{screen_id}.screen.json (+ sidecar sha256)")
 
         # Autogen (D36): rigenera il progetto Expo ad ogni export dal canvas.
         app = self._autogen_app(screen)
         if app:
             result["app"] = app
+            if app["ok"]:
+                self._log(f"  autogen: {app['files']} file rigenerati in "
+                          f"{app['path']} · Metro: "
+                          f"{'attivo, l app si aggiorna da sola' if app['metro'] else 'non attivo (avvialo una volta)'}")
+            else:
+                self._log(f"  autogen FERMO: {app['error']}")
         return result
 
     def get_screen(self, screen_id: str) -> dict | None:
@@ -311,7 +369,10 @@ def make_handler(bridge: Bridge):
             elif self.path == "/screens":
                 self._send(200, {"screens": bridge.list_screens()})
             elif self.path.startswith("/screen/"):
-                screen = bridge.get_screen(self.path[len("/screen/"):])
+                sid = self.path[len("/screen/"):]
+                screen = bridge.get_screen(sid)
+                bridge._log(f"→ /screen/{sid}: il plugin chiede lo screen "
+                            f"(render su canvas) — {'trovato' if screen else 'NON trovato'}")
                 self._send(200, screen) if screen else self._send(404, {"error": "non trovato"})
             else:
                 self._send(404, {"error": "endpoint sconosciuto"})
@@ -324,7 +385,11 @@ def make_handler(bridge: Bridge):
                 return
             screen = payload.get("screen", payload)
             if self.path == "/validate":
-                self._send(200, bridge.validate_screen(screen))
+                result = bridge.validate_screen(screen)
+                bridge._log(f"→ /validate: {result['errors']} errori, "
+                            f"{len(result['findings']) - result['errors']} warning "
+                            f"(nessuna scrittura)")
+                self._send(200, result)
             elif self.path == "/import":
                 self._send(200, bridge.import_screen(screen, assets=payload.get("assets")))
             elif self.path == "/review":
@@ -340,11 +405,12 @@ def make_handler(bridge: Bridge):
     return Handler
 
 
-def serve(root: Path, port: int = DEFAULT_PORT, autogen: Path | None = None) -> None:
+def serve(root: Path, port: int = DEFAULT_PORT, autogen: Path | None = None,
+          log: bool = True) -> None:
     import socket
     import threading
 
-    bridge = Bridge(root, autogen=autogen)
+    bridge = Bridge(root, autogen=autogen, log=log)
     handler = make_handler(bridge)
 
     servers: list[ThreadingHTTPServer] = []
@@ -364,6 +430,9 @@ def serve(root: Path, port: int = DEFAULT_PORT, autogen: Path | None = None) -> 
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
     print(f"DesignChecker bridge attivo su http://localhost:{port}")
+    if log:
+        print("Log attivita' attivo: qui vedi ogni richiesta del plugin, "
+              "cosa valida, cosa scrive, cosa manda all'AI (--quiet per spegnerlo)")
     if autogen:
         print(f"Autogen attivo: ogni export/fix rigenera l'app in {bridge.autogen}")
         print("  (Metro attivo? l'app nel simulatore si aggiorna da sola. "

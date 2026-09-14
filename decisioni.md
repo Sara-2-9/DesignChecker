@@ -218,3 +218,24 @@ Comunicazione: code.js ↔ ui.html via `postMessage`; ui.html ↔ bridge via fet
 2. **Protezione anti-sovrascrittura**: la cartella di autogen contiene il marker `.designchecker-autogen`; se la cartella esiste, e' piena e NON ha il marker, il bridge rifiuta di scriverci (mai distruggere lavoro altrui). La cartella autogen e' dichiaratamente gestita: non modificarla a mano.
 3. **Metro rilevato, non avviato**: il bridge controlla `localhost:8081/status` e lo riporta (`health.metro`, `app.metro`). Avviare Metro dal bridge e' volutamente escluso: e' un dev server interattivo di lunga durata (port, watchman, log); avviarlo come subprocess nascosto crea piu' guasti che passaggi risparmiati. Il compromesso: **una sola volta per sessione** l'utente avvia `npx expo start` nella cartella (e `npm install` solo alla primissima creazione); da li' in poi ogni export/fix aggiorna l'app da solo via Fast Refresh — zero terminale nel loop.
 **Motivazione:** il loop creativo ideale e': modifichi in Figma → il frame corretto appare sul canvas → l'app nel simulatore si aggiorna da sola. Tutto cio' che e' deterministico (generazione file) deve sparire dal cammino dell'utente; cio' che e' un processo vivo (Metro) si avvia una volta e resta.
+
+## D37 — Osservabilità: log live del bridge + `dck trace` (2026-07)
+
+Richiesta: vedere dal terminale tutto ciò che succede — plugin, validazione, AI,
+codegen, file usati/scritti.
+
+1. **Log live del bridge** — `dck serve` ora stampa una riga timestamped per ogni
+   evento: avvio (autogen? porta?), /import (nodi, asset, violazioni, KB, file
+   scritti, autogen), /validate, /screen/<id>, /review (provider, durata, caratteri),
+   /fix (patch applicate, righe del log, durata). Attivo di default; `--quiet` lo
+   spegne. Così il terminale del bridge diventa il "registro di bordo" di ogni giro.
+2. **`dck trace <screen.json>`** — mappa statica dell'intera pipeline in 6 fasi
+   (LETTURA → VALIDAZIONE → BRIDGE → AI → CODEGEN → APP): quali file legge, cosa
+   scrive e dove, cosa manda all'AI e cosa accetta indietro, quali file genera
+   (lista completa da `Codegen.full_project_files()`), come arrivano sul telefono.
+   Legge davvero lo screen e le regole, quindi i conteggi sono quelli reali.
+3. **Codegen refactor** — lo scaffold completo estratto in `full_project_files()`
+   così `trace` elenca davvero tutti i file generati (prima mancavano package.json,
+   app.json, tsconfig, _layout).
+
+126 test OK.

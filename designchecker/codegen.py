@@ -860,7 +860,9 @@ export function use{pascal(state)}() {{
         self._copy_assets(project_dir, written)
         return written, skipped
 
-    def generate(self, out_dir: Path) -> list[Path]:
+    def full_project_files(self) -> dict[str, str]:
+        """Progetto completo (scaffold + schermata): usato da generate() e
+        da `dck trace` per mostrare esattamente cosa verrebbe prodotto."""
         screen_id, component, screen_content = self.screen_tsx()
         files: dict[str, str] = {
             "package.json": self.package_json(),
@@ -880,7 +882,10 @@ export function use{pascal(state)}() {{
         for binding in self.list_bindings:
             files[f"src/screens/{screen_id}/components/{binding['row_kebab']}.tsx"] = \
                 self.row_tsx(binding["row"], binding["state"])
+        return files
 
+    def generate(self, out_dir: Path) -> list[Path]:
+        files = self.full_project_files()
         written = []
         for rel, content in files.items():
             path = out_dir / rel

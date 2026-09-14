@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34) + **AI con regolamento completo e contesto opzionale** (D35) + **autogen dell'app a ogni export/fix** (`dck serve --autogen`, D36). 123 test OK. Decisioni D1–D36.
+🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34) + **AI con regolamento completo e contesto opzionale** (D35) + **autogen dell'app a ogni export/fix** (`dck serve --autogen`, D36) + **osservabilità completa** (log live del bridge + `dck trace`, D37). 126 test OK. Decisioni D1–D37.
 
 ### Installazione (una volta sola)
 
@@ -100,6 +100,16 @@ L'AI non tocca mai il JSON senza permesso del validatore deterministico: una pat
 # 1. In un terminale, dalla cartella del progetto:
 designchecker serve          # bridge locale su http://localhost:7357 (lasciarlo aperto)
 designchecker serve --autogen ~/Desktop/la-mia-app   # + rigenera l'app Expo a ogni export/fix (D36)
+designchecker serve --quiet                          # senza il log live (di default attivo, D37)
+```
+
+Mentre il bridge gira, il suo terminale è il **registro di bordo**: ogni evento
+(/import con nodi/asset/violazioni/file scritti, /validate, /screen, /review,
+/fix con durata e provider) è una riga timestamped. Per la mappa completa e
+statica della pipeline su uno screen specifico:
+
+```bash
+designchecker trace examples/home.screen.json   # 6 fasi: LETTURA → VALIDAZIONE → BRIDGE → AI → CODEGEN → APP (D37)
 ```
 
 2. In Figma (desktop o browser): **Menu → Plugins → Development → Import plugin from manifest…** → seleziona `DesignChecker/plugin/manifest.json`
@@ -121,7 +131,7 @@ designchecker serve --autogen ~/Desktop/la-mia-app   # + rigenera l'app Expo a o
 ├── rules/             ← 6 file: ios-hig, material3, wcag, design-system, expo-rn, ux-heuristics
 ├── components.catalog.yaml
 ├── examples/          ← tokens.json, schermate di esempio, generated-app/ (progetto Expo)
-├── tests/             ← 111 test (validatore + codegen + importer + bridge + AI)
+├── tests/             ← 126 test (validatore + codegen + importer + bridge + AI + log/trace)
 └── docs/              ← la progettazione completa
 ```
 
