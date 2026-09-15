@@ -126,6 +126,24 @@ def main(argv: list[str] | None = None) -> None:
     p_review.add_argument("--context", default=None,
                           help="Contesto opzionale sull'app per calibrare l'AI (D35)")
 
+    p_eval = sub.add_parser("evaluate", help="Padre valutatore: solo ruolo/scopo, niente scrittura")
+    p_eval.add_argument("screen", type=Path, help="Percorso dello screen JSON")
+    p_eval.add_argument("--context", default=None)
+    p_eval.add_argument("--preview", type=Path, default=None,
+                        help="PNG del frame (vision padre); altrimenti solo JSON")
+
+    p_propose = sub.add_parser("propose", help="Padre+figli: proposta nuovo design gated dal validatore")
+    p_propose.add_argument("screen", type=Path, help="Percorso dello screen JSON")
+    p_propose.add_argument("--tokens", type=Path, default=None)
+    p_propose.add_argument("--catalog", type=Path, default=None)
+    p_propose.add_argument("--platform", choices=["ios", "android", "both", "custom"],
+                           default=None)
+    p_propose.add_argument("--context", default=None)
+    p_propose.add_argument("--preview", type=Path, default=None,
+                           help="PNG del frame (vision padre)")
+    p_propose.add_argument("--no-baseline", action="store_true",
+                           help="Salta i findings iniziali: padre cieco da JSON+PNG+ricerca (anti-ancoraggio)")
+
     args = parser.parse_args(argv)
     root = _find_project_root()
 
@@ -210,8 +228,102 @@ def main(argv: list[str] | None = None) -> None:
         _ai_screen_command(args, root, rules)
         return
 
+    if args.command in ("evaluate", "propose"):
+        _evaluator_command(args, root, rules)
+        return
+
     if args.command in ("link", "screens", "import"):
         _figma_commands(args, root)
+
+
+def _evaluator_command(args, root: Path, rules) -> None:
+    """Flusso padre+figli (branch propose): evaluate = solo ruolo,
+    propose = diagnosi + patch gated dal validatore, mai sovrascrittura."""
+    import base64 as _b64
+    import json as _json
+    from .evaluator.classify import classify, heuristic_role
+    from .evaluator.orchestrator import run_propose
+    from . import patcher
+
+    if not args.screen.exists():
+        print(f"File non trovato: {args.screen}", file=sys.stderr)
+        sys.exit(2)
+    config = _load_config()
+    task = "review"
+    p, model = _resolve_provider(config, task)
+    if p is None or not model:
+        print("Nessun provider AI configurato. Lancia prima: dck ai", file=sys.stderr)
+        sys.exit(2)
+    from . import ai as _ai
+
+    def chat_fn(messages):
+        return _ai.chat(p, model, messages, config)
+
+    screen = load_screen(args.screen)
+    preview_b64 = None
+    if getattr(args, "preview", None):
+        pp = Path(args.preview).expanduser()
+        if pp.is_file() and pp.stat().st_size <= 8 * 1024 * 1024:
+            preview_b64 = _b64.b64encode(pp.read_bytes()).decode()
+
+    if args.command == "evaluate":
+        print(f"── Evaluate padre ({p.label} · {model}) ──")
+        try:
+            role = classify(screen, chat_fn, args.context, preview_b64)
+        except Exception:
+            role = heuristic_role(screen)
+        print(f"Ruolo: {role['role']} (conf {role.get('confidence', 0):.2f})")
+        print(f"Scopo: {role.get('user_goal', '')}")
+        if role.get("signals"):
+            print("Segnali: " + ", ".join(role["signals"]))
+        if preview_b64 and not _ai.supports_vision(p, model):
+            print("(modello senza vision: valutato dal solo JSON)")
+        return
+
+    # propose
+    from .tokens import TokenStore
+    from .validator import resolve_theme, validate
+    tokens = TokenStore(load_tokens(getattr(args, "tokens", None) or (root / "examples" / "tokens.json")))
+    catalog = load_catalog(getattr(args, "catalog", None) or (root / "components.catalog.yaml"))
+    platform = args.platform or (screen.get("meta", {}) or {}).get("platform") or "both"
+    theme = resolve_theme(screen, tokens)
+    findings = validate(screen, rules, tokens, catalog, platform=platform, theme=theme)
+    token_values = {path: tokens.resolve_path(path, theme) for path in tokens.flat}
+    baseline = not getattr(args, "no_baseline", False)
+    print(f"── Propose padre+figli ({p.label} · {model} · {platform} · tema {theme}) ──")
+    print(f"Baseline validatore: {len([f for f in findings if f.severity=='error'])} errori, "
+          f"{len([f for f in findings if f.severity=='warning'])} warning"
+          f"{' (OFF: padre cieco)' if not baseline else ''}")
+
+    prop = run_propose(screen, findings, chat_fn, search_fn=None,
+                       token_paths=list(tokens.flat), token_values=token_values,
+                       context=args.context, platform=platform, theme=theme,
+                       preview_base64=preview_b64, baseline=baseline,
+                       cache_dir=root / ".designchecker" / "research",
+                       emit=lambda t: print(f"  {t}"))
+    for line in prop["log"]:
+        pass  # gia' stampate via emit
+
+    def validate_fn(scr):
+        fs = validate(scr, rules, tokens, catalog, platform=platform, theme=theme)
+        return [f for f in fs if f.severity == "error"], \
+               [f for f in fs if f.severity == "warning"]
+
+    gate = patcher.gate_propose(screen, prop["ops"], validate_fn)
+    print(f"Ruolo: {prop['role']['role']} — {prop['role'].get('user_goal','')}")
+    print(f"Fix uniti: {len(prop['fixes'])} → ops: {len(prop['ops'])}")
+    print(f"Gate: {gate['before'][0]}→{gate['after'][0]} errori, "
+          f"{gate['before'][1]}→{gate['after'][1]} warning — "
+          f"{'ACCETTATA' if gate['applied'] else 'RIFIUTATA: ' + gate['detail']}")
+    if gate["applied"]:
+        out = args.screen.parent / f"{args.screen.stem}.ai-proposal.screen.json"
+        bak = out.with_suffix(out.suffix + ".bak")
+        if out.exists() and not bak.exists():
+            bak.write_text(out.read_text(encoding="utf-8"), encoding="utf-8")
+        out.write_text(_json.dumps(gate["screen"], indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"✓ Proposta salvata: {out} (originale intatto)")
+    else:
+        sys.exit(0 if gate["before"][0] == 0 else 1)
 
 
 def _config_path() -> Path:
@@ -284,6 +396,9 @@ def _trace_command(args, root: Path, rules) -> None:
     print("            riceve: solo testo (parere consultivo, nessuna scrittura)")
     print("   fix    → manda: lo stesso + lista dei token reali;")
     print("            riceve: JSON Patch → il VALIDATORE la approva o rifiuta")
+    print("   propose (padre+figli) → classify ruolo → research per ruolo →")
+    print("            diagnosi cieca → 6 sottoagenti → merge → gate validatore;")
+    print("            proposta in <id>.ai-proposal.screen.json (originale intatto)")
     print("   chiavi  : ~/.designchecker/config.json (chmod 600, mai nel repo);")
     print("             escono solo verso il provider che hai scelto")
     print("   ispeziona: `dck serve --verbose` mostra prompt e risposte completi (D38)")

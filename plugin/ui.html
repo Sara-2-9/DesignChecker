@@ -93,6 +93,14 @@
     <button id="btn-fix" class="secondary" disabled>Correggi con AI</button>
   </div>
   <div class="row">
+    <button id="btn-propose" class="secondary" disabled>Proponi nuovo design (padre+figli)</button>
+  </div>
+  <div class="row">
+    <label class="toggle" title="OFF = padre cieco da JSON+PNG+ricerca, senza findings iniziali (anti-ancoraggio)">
+      <input type="checkbox" id="baseline" checked> Baseline validatore all'inizio
+    </label>
+  </div>
+  <div class="row">
     <input type="text" id="ai-context" placeholder="contesto app (opzionale) — es. app di vibe coding…">
   </div>
   <div id="ai-out"></div>
@@ -137,6 +145,7 @@ async function boot() {
       $('ai-model').textContent = '· ' + health.ai.label + ' ' + health.ai.model;
       $('btn-review').disabled = false;
       $('btn-fix').disabled = false;
+      $('btn-propose').disabled = false;
     } else {
       $('ai-model').textContent = '· non configurata (dck ai)';
     }
@@ -219,7 +228,12 @@ function setAiBusy(busy, label) {
   aiBusy = busy;
   $('btn-review').disabled = busy;
   $('btn-fix').disabled = busy;
+  $('btn-propose').disabled = busy;
   if (label) $('status').textContent = label;
+}
+
+function proposePhases(lines) {
+  aiOut(lines.map((l) => '<div class="logline">' + l.replace(/</g, '&lt;') + '</div>').join(''));
 }
 
 // I bottoni AI lavorano su lastScreen: se il plugin e' appena stato riaperto
@@ -269,9 +283,7 @@ $('btn-review').onclick = async () => {
   setAiBusy(false);
 };
 
-$('btn-fix').onclick = async () => {
-  if (aiBusy) return;
-  if (!(await ensureScreen())) return;
+$('btn-fix').onclick = async () => {  if (aiBusy) return;  if (!(await ensureScreen())) return;
   setAiBusy(true, 'fix AI in corso: il validatore fara\' da gatekeeper…');
   aiOut('');
   try {
@@ -305,6 +317,78 @@ $('btn-fix').onclick = async () => {
   }
   setAiBusy(false);
 };
+
+// Flusso Proponi nuovo design: export con preview PNG -> POST /propose?stream=1
+// con fasi live (stessi testi della console bridge) -> render proposta come
+// nuovo frame [AI]. Il frame originale non viene mai sovrascritto.
+let lastPreview = null;
+
+$('btn-propose').onclick = async () => {
+  if (aiBusy) return;
+  setAiBusy(true, 'proposta in corso: esporto frame + preview PNG…');
+  aiOut('');
+  parent.postMessage({ pluginMessage: { type: 'export-propose' } }, '*');
+};
+
+async function proposeWithScreen(screen, preview_base64, assets) {
+  const phases = [];
+  const show = () => proposePhases(phases);
+  try {
+    const res = await fetch(BRIDGE + '/propose?stream=1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ screen, preview_base64: preview_base64 || undefined,
+                             assets: assets || [],
+                             context: $('ai-context').value.trim() || undefined,
+                             platform: $('platform').value, theme: $('theme').value,
+                             baseline: $('baseline').checked }),
+    });
+    if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let result = null;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const ln of lines) {
+        if (!ln.trim()) continue;
+        try {
+          const msg = JSON.parse(ln);
+          if (msg.phase) { phases.push(msg.phase); show(); $('status').textContent = msg.phase; }
+          if (msg.done) result = msg.result;
+        } catch (e) { /* riga parziale: ignora */ }
+      }
+    }
+    if (!result) throw new Error('stream interrotto');
+    if (result.error) {
+      aiOut('<div class="finding error"><div>' + result.error + '</div></div>');
+    } else {
+      const role = result.role || {};
+      const srcs = (result.sources || []).map((s) =>
+        '<div class="logline">· <a href="' + s.url + '" target="_blank">' +
+        (s.title || s.url).replace(/</g, '&lt;') + '</a></div>').join('');
+      aiOut(phases.map((l) => '<div class="logline">' + l.replace(/</g, '&lt;') + '</div>').join('') +
+        '<div class="section">ruolo: ' + (role.role || '?') + ' — ' +
+        (role.user_goal || '').replace(/</g, '&lt;') + '</div>' +
+        (srcs ? '<div class="section">fonti usate</div>' + srcs : '') +
+        (result.applied
+          ? '<div class="ok">✓ Proposta accettata dal gate (' + result.before + ' → ' + result.after +
+            ') — la renderizzo come nuovo frame [AI]</div>'
+          : '<div class="finding warning"><div>Proposta rifiutata dal gate: file invariato</div></div>'));
+      if (result.applied && result.screen) {
+        appStatus(result.app);
+        parent.postMessage({ pluginMessage: { type: 'render-proposal', screen: result.screen } }, '*');
+      }
+    }
+  } catch (e) {
+    $('status').textContent = 'bridge irraggiungibile durante la proposta';
+  }
+  setAiBusy(false);
+}
 
 // D43: la selezione sul canvas e' sempre visibile qui e nel log del bridge.
 let lastLoggedSelection = null;
@@ -347,6 +431,7 @@ window.onmessage = async (event) => {
   }
   if (msg.type === 'screen-exported') {
     lastMap = msg.map || {};
+    lastPreview = msg.preview_base64 || null;
     try {
       await validateScreen(msg.screen, msg.assets);
       // Diagnostica D34: quanti nodi immagine/icona trovati, quanti PNG esportati.
@@ -360,6 +445,17 @@ window.onmessage = async (event) => {
     } catch (e) {
       $('status').textContent = 'bridge irraggiungibile durante la validazione';
     }
+  }
+  if (msg.type === 'propose-exported') {
+    lastMap = msg.map || {};
+    lastScreen = msg.screen;
+    try {
+      await proposeWithScreen(msg.screen, msg.preview_base64, msg.assets);
+    } catch (e) {
+      $('status').textContent = 'bridge irraggiungibile durante la proposta';
+      setAiBusy(false);
+    }
+    return;
   }
   if (msg.type === 'error') {
     $('status').textContent = msg.message;

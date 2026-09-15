@@ -374,6 +374,16 @@ async function collectAssets(screenId) {
   return assets;
 }
 
+// Esporta il frame intero come PNG 2x per la vision del padre (flusso propose).
+// Ritorna base64 o null. Separata da collectAssets: e' la vista reale,
+// non i singoli asset.
+async function exportPreview(node) {
+  try {
+    const bytes = await node.exportAsync({ format: 'PNG', constraint: { type: 'SCALE', value: 2 } });
+    return figma.base64Encode(bytes);
+  } catch (e) { return null; }
+}
+
 function exportFrame(node) {
   exportMap = {};
   pendingAssets = [];
@@ -813,6 +823,25 @@ async function exportAndAskValidation() {
   figma.ui.postMessage({ type: 'screen-exported', screen: screen, map: exportMap, assets: assets });
 }
 
+// Propose: stesso export + PNG vista reale per la vision del padre.
+// Il messaggio 'propose-exported' porta screen + preview_base64 + assets.
+async function exportForPropose() {
+  const node = currentTargetNode();
+  if (!node) {
+    const d = describeSelection();
+    figma.ui.postMessage({ type: 'error', message: d
+      ? 'Hai selezionato "' + d.name + '" (' + d.kind + '): non e\' un frame. Seleziona il frame della schermata.'
+      : 'Seleziona un frame sul canvas (la schermata).' });
+    return;
+  }
+  watchedNodeId = node.id;
+  const screen = exportFrame(node);
+  const assets = await collectAssets(screen.meta.id);
+  const preview = await exportPreview(node);
+  figma.ui.postMessage({ type: 'propose-exported', screen: screen, map: exportMap,
+                         assets: assets, preview_base64: preview });
+}
+
 figma.on('documentchange', () => {
   if (!watching) return;
   if (debounceTimer) clearTimeout(debounceTimer);
@@ -861,8 +890,14 @@ figma.ui.onmessage = async (msg) => {
     watchedNodeId = node.id;
     const screen = exportFrame(node);
     const assets = await collectAssets(screen.meta.id);
+    const preview = await exportPreview(node);
     figma.ui.postMessage({ type: 'screen-exported', screen: screen, map: exportMap, assets: assets,
+                           preview_base64: preview,
                            assets_debug: { found: pendingAssets.length, sent: assets.length } });
+  }
+  if (msg.type === 'export-propose') {
+    await exportForPropose();
+    return;
   }
   if (msg.type === 'annotate') {
     exportMap = msg.map || exportMap;
@@ -877,6 +912,19 @@ figma.ui.onmessage = async (msg) => {
       figma.ui.postMessage({ type: 'rendered', name: frame.name });
     } catch (e) {
       figma.ui.postMessage({ type: 'error', message: 'Render fallito: ' + (e.message || e) });
+    }
+  }
+  if (msg.type === 'render-proposal') {
+    // Proposta AI: nuovo frame accanto all'originale, mai sovrascrittura.
+    try {
+      const frame = await renderScreen(msg.screen);
+      frame.name = '[AI] ' + frame.name;
+      frame.x = frame.x + frame.width + 120; // a destra dell'originale
+      figma.currentPage.selection = [frame];
+      figma.viewport.scrollAndZoomIntoView([frame]);
+      figma.ui.postMessage({ type: 'rendered', name: frame.name });
+    } catch (e) {
+      figma.ui.postMessage({ type: 'error', message: 'Render proposta fallito: ' + (e.message || e) });
     }
   }
   if (msg.type === 'close') figma.closePlugin();

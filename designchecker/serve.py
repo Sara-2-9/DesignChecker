@@ -405,6 +405,176 @@ class Bridge:
                 self._log(f"  autogen FERMO: {app['error']}")
         return result
 
+    # ---------------------------------------------------------- propose (padre+figli)
+
+    def _save_preview(self, screen_id: str, preview_base64: str | None) -> dict | None:
+        """Salva il PNG del frame in imports/previews/<id>.png (vision padre).
+        Ritorna {"path", "kb"} o None. Base64 invalido -> None, mai eccezioni."""
+        if not preview_base64:
+            return None
+        import base64 as _b64
+        safe = "".join(c for c in screen_id if c.isalnum() or c in "-_") or "screen"
+        try:
+            raw = _b64.b64decode(preview_base64)
+        except Exception:
+            self._log("  preview PNG non decodificabile: proseguo senza vision")
+            return None
+        if len(raw) > 8 * 1024 * 1024:
+            self._log("  preview PNG >8MB: scartata, proseguo senza vision")
+            return None
+        out_dir = self.root / "imports" / "previews"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{safe}.png"
+        path.write_bytes(raw)
+        info = {"path": str(path), "kb": max(len(raw) // 1024, 1)}
+        self._log(f"  preview: PNG del frame salvato ({info['kb']} KB)")
+        return info
+
+    def _log_eval(self, screen_id: str, entry: dict) -> None:
+        """Audit del perche' (D17): ruolo, fonti, divergenze, esito gate."""
+        import json as _json
+        out_dir = self.root / "imports"
+        out_dir.mkdir(exist_ok=True)
+        line = _json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "screen": screen_id, **entry}, ensure_ascii=False)
+        with (out_dir / f"{screen_id}.eval.jsonl").open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+    def evaluate_role(self, screen: dict, context: str | None = None,
+                      preview_base64: str | None = None) -> dict:
+        """Solo diagnosi ruolo/scopo, niente scrittura (per `dck evaluate`)."""
+        from .evaluator.classify import classify, heuristic_role
+        p, model, config = self._ai_provider()
+        if p is None:
+            return {"error": "Provider AI non configurato: lancia `dck ai`"}
+        from . import ai as _ai
+
+        def chat_fn(messages):
+            return _ai.chat(p, model, messages, config)
+
+        self._log(f"→ /evaluate: {p.label} · {model} — classify ruolo")
+        try:
+            role = classify(screen, chat_fn, context, preview_base64)
+        except Exception as e:
+            role = heuristic_role(screen)
+            role["_fallback"] = str(e)[:120]
+        return {"role": role}
+
+    def propose_screen(self, screen: dict, preview_base64: str | None = None,
+                       context: str | None = None, platform: str | None = None,
+                       theme: str | None = None, baseline: bool = True,
+                       search_fn=None, emit=None) -> dict:
+        """Giro completo Proponi nuovo design: padre+figli -> gate validatore.
+
+        emit(text) chiamato a ogni fase (streaming plugin + log console).
+        Salva preview PNG, proposal JSON e eval.jsonl. Il frame originale
+        non viene mai sovrascritto: la proposta va in <id>.ai-proposal.screen.json.
+        """
+        from . import ai as _ai
+        from . import patcher
+        from .evaluator.orchestrator import run_propose
+        p, model, config = self._ai_provider()
+        if p is None:
+            return {"error": "Provider AI non configurato: lancia `dck ai`"}
+        platform = self._resolve_platform(screen, platform)
+        theme = resolve_theme(screen, self.tokens, theme)
+        screen_id = screen.get("meta", {}).get("id", "screen")
+
+        def _emit(t: str) -> None:
+            self._log(f"  {t}")
+            if emit is not None:
+                try:
+                    emit(t)
+                except Exception:
+                    pass
+
+        self._log(f"→ /propose dal plugin: screen '{screen_id}' [{platform} · tema {theme}]"
+                  f"{' + contesto' if context else ''}"
+                  f"{' (baseline OFF: solo JSON+PNG+ricerca)' if not baseline else ''}")
+        preview = self._save_preview(screen_id, preview_base64)
+        if preview_base64 and not preview:
+            _emit("vision non disponibile: valuto dal solo JSON")
+        elif preview and not _ai.supports_vision(p, model):
+            _emit("modello senza vision dichiarata: il PNG resta agli atti, valuto dal JSON")
+
+        applicable = rules_for_platform(self.rules, platform)
+        base = self.validate_screen(screen, platform, theme)
+        _emit(f"baseline deterministica: {base['errors']} errori, "
+              f"{len(base['findings']) - base['errors']} warning (parere, non verita')")
+
+        token_values = {path: self.tokens.resolve_path(path, theme)
+                        for path in self.tokens.flat}
+
+        def chat_fn(messages):
+            return _ai.chat(p, model, messages, config)
+
+        t0 = time.monotonic()
+        def base_findings():
+            from .validator import validate as _v
+            return _v(screen, self.rules, self.tokens, self.catalog,
+                      platform=platform, theme=theme)
+        try:
+            prop = run_propose(screen, base_findings(), chat_fn, search_fn,
+                               token_paths=list(self.tokens.flat),
+                               token_values=token_values, context=context,
+                               platform=platform, theme=theme,
+                               preview_base64=preview_base64 if preview else None,
+                               baseline=baseline,
+                               cache_dir=self.root / ".designchecker" / "research",
+                               emit=_emit)
+        except Exception as e:
+            self._log(f"  ✗ orchestratore fallito: {e}")
+            return {"error": f"Orchestratore fallito: {e}"}
+
+        # gate finale: l'unico che decide (il padre propone, mai valida)
+        def validate_fn(scr):
+            from .validator import validate as _v
+            fs = _v(scr, self.rules, self.tokens, self.catalog,
+                    platform=platform, theme=theme)
+            return [f for f in fs if f.severity == "error"], \
+                   [f for f in fs if f.severity == "warning"]
+
+        gate = patcher.gate_propose(screen, prop["ops"], validate_fn)
+        dur = time.monotonic() - t0
+        before, after = gate["before"], gate["after"]
+        _emit(f"gate validatore: {before[0]}→{after[0]} errori, {before[1]}→{after[1]} warning "
+              f"in {dur:.1f}s — {'ACCETTATA' if gate['applied'] else 'RIFIUTATA: ' + gate['detail'][:120]}")
+
+        result: dict = {
+            "role": prop["role"], "sources": prop["sources"],
+            "blind": prop["blind"], "applied": gate["applied"],
+            "before": list(before), "after": list(after),
+            "ops": [{"op": o.get("op"), "path": o.get("path")} for o in gate["ops"]],
+            "log": prop["log"], "platform": platform, "theme": theme,
+            "baseline": baseline,
+        }
+        self._log_eval(screen_id, {"role": prop["role"], "platform": platform,
+                                   "theme": theme, "before": list(before),
+                                   "after": list(after), "applied": gate["applied"],
+                                   "sources": [s["url"] for s in prop["sources"]],
+                                   "ops": len(gate["ops"])})
+        if gate["applied"]:
+            out_dir = self.root / "imports"
+            out_dir.mkdir(exist_ok=True)
+            proposal = gate["screen"]
+            proposal.setdefault("meta", {})["platform"] = platform
+            proposal["meta"]["theme"] = theme
+            proposal["meta"]["proposal_of"] = screen_id
+            out_path = out_dir / f"{screen_id}.ai-proposal.screen.json"
+            bak = out_dir / f"{screen_id}.ai-proposal.screen.json.bak"
+            if out_path.exists() and not bak.exists():
+                bak.write_text(out_path.read_text(encoding="utf-8"), encoding="utf-8")
+            out_path.write_text(json.dumps(proposal, indent=2, ensure_ascii=False),
+                                encoding="utf-8")
+            result["path"] = str(out_path)
+            result["screen"] = proposal
+            self._log(f"  proposta salvata: imports/{screen_id}.ai-proposal.screen.json "
+                      f"(originale intatto)")
+            app = self._autogen_app(proposal)
+            if app:
+                result["app"] = app
+        return result
+
     def get_screen(self, screen_id: str) -> dict | None:
         from .codegen import kebab
         # normalizza: "Home2" -> "home2" (l'id dei file e' sempre kebab-case)
@@ -490,8 +660,54 @@ def make_handler(bridge: Bridge):
             elif self.path == "/client-log":
                 # eventi lato Figma (selezione frame, D43): solo log, nessuna scrittura
                 self._send(200, bridge.client_log(payload.get("message", "")))
+            elif self.path == "/evaluate":
+                self._send(200, bridge.evaluate_role(
+                    screen, context=payload.get("context"),
+                    preview_base64=payload.get("preview_base64")))
+            elif self.path.startswith("/propose"):
+                stream = "stream=1" in (self.path.split("?", 1)[1] if "?" in self.path else "")
+                baseline = payload.get("baseline", True)
+                if baseline in ("false", "0", False):
+                    baseline = False
+                else:
+                    baseline = True if baseline is None else bool(baseline)
+                if not stream:
+                    self._send(200, bridge.propose_screen(
+                        screen, preview_base64=payload.get("preview_base64"),
+                        context=payload.get("context"), platform=platform,
+                        theme=theme, baseline=baseline))
+                else:
+                    self._send_propose_stream(bridge, screen, payload, platform, theme, baseline)
             else:
                 self._send(404, {"error": "endpoint sconosciuto"})
+
+        def _send_propose_stream(self, bridge, screen, payload, platform, theme, baseline):
+            """Streaming NDJSON riga per fase per il plugin (fasi live in Figma).
+            Ogni riga: {"phase": "..."}; ultima riga: {"done": true, "result": {...}}."""
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            phases: list[str] = []
+
+            def emit(text: str) -> None:
+                phases.append(text)
+                try:
+                    self.wfile.write((json.dumps({"phase": text},
+                                                 ensure_ascii=False) + "\n").encode("utf-8"))
+                    self.wfile.flush()
+                except Exception:
+                    pass
+
+            result = bridge.propose_screen(
+                screen, preview_base64=payload.get("preview_base64"),
+                context=payload.get("context"), platform=platform,
+                theme=theme, baseline=baseline, emit=emit)
+            try:
+                self.wfile.write((json.dumps({"done": True, "result": result},
+                                             ensure_ascii=False) + "\n").encode("utf-8"))
+            except Exception:
+                pass
 
         def log_message(self, fmt, *args):  # silenzia il log per richiesta
             pass

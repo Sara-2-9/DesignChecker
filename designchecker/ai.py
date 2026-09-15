@@ -201,13 +201,18 @@ def fetch_models(p: Provider, config: dict | None = None,
 
 def chat(p: Provider, model: str, messages: list, config: dict | None = None,
          timeout: int = CHAT_TIMEOUT, http_json=_http_json) -> str:
-    """Chiamata chat completion. Ritorna il testo della risposta."""
+    """Chiamata chat completion. Ritorna il testo della risposta.
+
+    Supporta messaggi multimodali OpenAI-compatibili: il content puo'
+    essere stringa oppure lista [{type:text,...},{type:image_url,...}]
+    (flusso Proponi nuovo design: JSON + PNG del frame). Per Anthropic
+    le parti immagine vengono appiattite in testo + nota."""
     config = config or {}
     if p.style == "anthropic":
         payload = {
             "model": model,
             "max_tokens": 4096,
-            "messages": [{"role": m["role"], "content": m["content"]}
+            "messages": [{"role": m["role"], "content": _anthropic_content(m["content"])}
                          for m in messages if m["role"] != "system"],
         }
         sys_msg = next((m["content"] for m in messages if m["role"] == "system"), None)
@@ -229,6 +234,39 @@ def chat(p: Provider, model: str, messages: list, config: dict | None = None,
     data = http_json(p.base_url.rstrip("/") + "/chat/completions", payload,
                      headers, timeout)
     return data["choices"][0]["message"]["content"] or ""
+
+
+def _anthropic_content(content) -> str:
+    """Appiattisce contenuti multimodali per Anthropic: testo + nota immagine.
+    Le immagini base64 non vengono inviate in questo MVP (nessun blocco
+    image/base64): il modello ragiona su JSON + nota di presenza PNG."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = [p.get("text", "") for p in content
+                 if isinstance(p, dict) and p.get("type") == "text"]
+        has_img = any(isinstance(p, dict) and p.get("type") == "image_url"
+                      for p in content)
+        out = "\n".join(t for t in texts if t)
+        if has_img:
+            out += ("\n[NOTA: al messaggio originale era allegato il PNG del frame, "
+                    "non inoltrabile in questo formato — valuta dal JSON.]")
+        return out
+    return str(content)
+
+
+def supports_vision(p: Provider, model: str) -> bool:
+    """True se il provider/modello accetta image_url. Euristica 2026:
+    cloud quasi sempre si', locali dipende dal modello."""
+    from .evaluator.vision import has_vision
+    return has_vision(p, model)
+
+
+def web_search_tool_stub(query: str) -> list:
+    """Placeholder documentato: la ricerca web reale e' eseguita dal bridge
+    (serve.py) che inietta search_fn nell'orchestratore. Questa stub esiste
+    perche' i test e `dck propose` offline non escano mai in rete da qui."""
+    return []
 
 
 def probe(p: Provider, model: str, config: dict | None = None,

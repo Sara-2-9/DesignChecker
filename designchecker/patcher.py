@@ -17,6 +17,7 @@ import json
 import re
 
 MAX_OPS = 40
+MAX_OPS_PROPOSE = 80  # redesign (padre+figli): piu' operazioni, stesso gate
 MAX_ATTEMPTS = 2
 
 
@@ -57,13 +58,13 @@ def _parent_of(doc, tokens: list, create: bool = False):
     return node, tokens[-1]
 
 
-def apply_patch(doc: dict, ops: list) -> dict:
+def apply_patch(doc: dict, ops: list, max_ops: int = MAX_OPS) -> dict:
     """Applica ops (add/remove/replace) a una COPIA di doc. Ritorna il nuovo doc."""
     out = copy.deepcopy(doc)
     if not isinstance(ops, list):
         raise PatchError("la patch deve essere un array JSON")
-    if len(ops) > MAX_OPS:
-        raise PatchError(f"troppe operazioni ({len(ops)} > {MAX_OPS})")
+    if len(ops) > max_ops:
+        raise PatchError(f"troppe operazioni ({len(ops)} > {max_ops})")
     for i, op in enumerate(ops):
         if not isinstance(op, dict) or "op" not in op or "path" not in op:
             raise PatchError(f"operazione {i} malformata: {op!r}")
@@ -454,3 +455,30 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
     log.append("Il modello non ha prodotto una patch accettabile. File invariato.")
     return {"applied": False, "screen": screen, "ops": [], "log": log,
             "before": before, "after": before}
+
+
+# ── Propose gate (flusso padre+figli): stessa regola del fix, piu' ops ──
+
+def gate_propose(screen: dict, ops: list, validate_fn) -> dict:
+    """Applica ops (gia' normalizzate per node-id) e decide col validatore.
+
+    Accettata solo se riduce gli errori senza aumentare i warning.
+    Usa MAX_OPS_PROPOSE (redesign) invece di MAX_OPS (fix puntuale).
+    Ritorna {"applied", "screen", "ops", "before", "after", "detail"}.
+    """
+    errors, warnings = validate_fn(screen)
+    before = (len(errors), len(warnings))
+    try:
+        patched = apply_patch(screen, ops, max_ops=MAX_OPS_PROPOSE)
+    except PatchError as e:
+        return {"applied": False, "screen": screen, "ops": [],
+                "before": before, "after": before,
+                "detail": f"patch non valida: {e}"}
+    n_errors, n_warnings = validate_fn(patched)
+    after = (len(n_errors), len(n_warnings))
+    if after[0] < before[0] and after[1] <= before[1]:
+        return {"applied": True, "screen": patched, "ops": ops,
+                "before": before, "after": after, "detail": ""}
+    detail = "; ".join(f"{f.rule_id} su '{f.node_id}'" for f in n_errors[:5])
+    return {"applied": False, "screen": screen, "ops": [],
+            "before": before, "after": after, "detail": detail}
