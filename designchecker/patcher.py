@@ -459,6 +459,28 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
 
 # ── Propose gate (flusso padre+figli): stessa regola del fix, piu' ops ──
 
+# Chiavi scrivibili dai fix AI (schema screen JSON v0.1). Tutto il resto
+# viene scartato con log invece di avvelenare la patch (bug Pay-Frame #2:
+# layout/height, style/background-pressed, props/enabled... inventate dal
+# modello e mai lette da validatore/codegen).
+_ALLOWED_KEYS = {
+    "style": {"color", "background", "radius", "foreground"},
+    "props": {"label", "action", "min_height", "height", "size",
+              "placeholder", "content", "variant", "confirm", "tabs",
+              "asset", "route", "name", "message", "action_label"},
+    "layout": {"direction", "gap", "padding", "sizing", "align",
+               "safe_area", "position", "offset"},
+    "a11y": {"label", "role"},
+    "semantics": {"primary_action", "destructive", "navigation_role"},
+    "meta": {"exceptions"},
+}
+
+
+def _key_allowed(key: str) -> bool:
+    parts = str(key or "").strip("/").split("/")
+    return (len(parts) >= 2 and parts[0] in _ALLOWED_KEYS
+            and parts[1] in _ALLOWED_KEYS[parts[0]])
+
 def normalize_ops_tolerant(screen: dict, ops) -> tuple[list, list]:
     """Normalizza un fix alla volta. Ritorna (ops_validi, scartati).
 
@@ -470,6 +492,12 @@ def normalize_ops_tolerant(screen: dict, ops) -> tuple[list, list]:
     good: list = []
     bad: list[tuple[str, str]] = []
     for op in ops:
+        if isinstance(op, dict) and "node" in op and "path" not in op:
+            key = str(op.get("key", ""))
+            if not _key_allowed(key):
+                bad.append((str(op.get("node", "?")),
+                            f"key fuori schema (ignorata da validatore/codegen): {key}"))
+                continue
         try:
             good.extend(normalize_ops(screen, [op]))
         except PatchError as e:
@@ -478,6 +506,30 @@ def normalize_ops_tolerant(screen: dict, ops) -> tuple[list, list]:
                 node = str(op.get("node", op.get("path", "?")))
             bad.append((node, str(e)))
     return good, bad
+
+
+def apply_patch_tolerant(doc: dict, ops: list,
+                         max_ops: int = MAX_OPS_PROPOSE) -> tuple[dict, list, list]:
+    """Applica le ops una alla volta. Ritorna (patched, applicate, scartate).
+
+    Una op che fallisce (es. remove su path inesistente) viene scartata da
+    sola con motivo, le altre passano. Bug Pay-Frame #2: un remove su
+    props/enabled inesistente bocciava l'intera patch da 25 ops."""
+    out = copy.deepcopy(doc)
+    applied: list = []
+    dropped: list = []
+    for op in ops:
+        try:
+            out = apply_patch(out, [op], max_ops=max_ops)
+            applied.append(op)
+        except PatchError as e:
+            msg = str(e)
+            if (isinstance(op, dict) and op.get("op") == "remove"
+                    and ("inesistente" in msg or "mancante" in msg)):
+                dropped.append({"op": op, "reason": "noop: chiave gia' assente"})
+            else:
+                dropped.append({"op": op, "reason": msg})
+    return out, applied, dropped
 
 def gate_propose(screen: dict, ops: list, validate_fn) -> dict:
     """Applica ops (gia' normalizzate per node-id) e decide col validatore.
@@ -488,17 +540,20 @@ def gate_propose(screen: dict, ops: list, validate_fn) -> dict:
     """
     errors, warnings = validate_fn(screen)
     before = (len(errors), len(warnings))
-    try:
-        patched = apply_patch(screen, ops, max_ops=MAX_OPS_PROPOSE)
-    except PatchError as e:
+    if not isinstance(ops, list):
         return {"applied": False, "screen": screen, "ops": [],
-                "before": before, "after": before,
-                "detail": f"patch non valida: {e}"}
+                "before": before, "after": before, "dropped": [],
+                "detail": "la patch non e' un array JSON"}
+    if len(ops) > MAX_OPS_PROPOSE:
+        return {"applied": False, "screen": screen, "ops": [],
+                "before": before, "after": before, "dropped": [],
+                "detail": f"troppe operazioni ({len(ops)} > {MAX_OPS_PROPOSE})"}
+    patched, applied, dropped = apply_patch_tolerant(screen, ops)
     n_errors, n_warnings = validate_fn(patched)
     after = (len(n_errors), len(n_warnings))
     if after[0] < before[0] and after[1] <= before[1]:
-        return {"applied": True, "screen": patched, "ops": ops,
-                "before": before, "after": after, "detail": ""}
+        return {"applied": True, "screen": patched, "ops": applied,
+                "before": before, "after": after, "dropped": dropped, "detail": ""}
     detail = "; ".join(f"{f.rule_id} su '{f.node_id}'" for f in n_errors[:5])
     return {"applied": False, "screen": screen, "ops": [],
-            "before": before, "after": after, "detail": detail}
+            "before": before, "after": after, "dropped": dropped, "detail": detail}

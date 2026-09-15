@@ -246,5 +246,62 @@ class TestWebsearch(unittest.TestCase):
         self.assertEqual(websearch.parse_duckduckgo(""), [])
 
 
+class TestTolerantApply(unittest.TestCase):
+    """Bug Pay-Frame #2: un remove su path inesistente bocciava 25 ops."""
+
+    def test_remove_missing_is_noop_drop(self):
+        scr = _screen()
+        ops = [
+            {"op": "replace", "path": "/root/id", "value": "home2"},
+            {"op": "remove", "path": "/root/props/enabled"},
+        ]
+        patched, applied, dropped = patcher.apply_patch_tolerant(scr, ops)
+        self.assertEqual(len(applied), 1)
+        self.assertEqual(len(dropped), 1)
+        self.assertEqual(patched["root"]["id"], "home2")
+
+    def test_gate_applies_rest_despite_bad_remove(self):
+        from designchecker.validator import Finding
+        scr = _screen()
+        ops = [
+            {"op": "replace", "path": "/root/id", "value": "home2"},
+            {"op": "remove", "path": "/root/props/enabled"},
+        ]
+
+        def validate_fn(s):
+            # l'id fixato toglie un errore finto: la patch deve passare
+            if s["root"]["id"] == "home2":
+                return [], []
+            return [Finding("r", "error", "n", "m")], []
+        gate = patcher.gate_propose(scr, ops, validate_fn)
+        self.assertTrue(gate["applied"])
+        self.assertEqual(len(gate["dropped"]), 1)
+
+
+class TestKeyAllowlist(unittest.TestCase):
+    def test_schema_keys_pass(self):
+        scr = _screen()
+        fixes = [
+            {"op": "replace", "node": "add-btn", "key": "props/label", "value": "X"},
+            {"op": "replace", "node": "add-btn", "key": "a11y/label", "value": "Y"},
+            {"op": "replace", "node": "add-btn", "key": "layout/gap", "value": 8},
+        ]
+        ops, dropped = patcher.normalize_ops_tolerant(scr, fixes)
+        self.assertEqual(len(ops), 3)
+        self.assertEqual(dropped, [])
+
+    def test_invented_keys_dropped(self):
+        scr = _screen()
+        fixes = [
+            {"op": "replace", "node": "add-btn", "key": "style/background-pressed",
+             "value": "{color.brand.primary}"},
+            {"op": "replace", "node": "add-btn", "key": "layout/height", "value": "44"},
+            {"op": "replace", "node": "add-btn", "key": "props/enabled", "value": True},
+        ]
+        ops, dropped = patcher.normalize_ops_tolerant(scr, fixes)
+        self.assertEqual(ops, [])
+        self.assertEqual(len(dropped), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

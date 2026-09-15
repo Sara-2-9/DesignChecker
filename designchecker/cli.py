@@ -313,6 +313,9 @@ def _evaluator_command(args, root: Path, rules) -> None:
     gate = patcher.gate_propose(screen, prop["ops"], validate_fn)
     print(f"Ruolo: {prop['role']['role']} — {prop['role'].get('user_goal','')}")
     print(f"Fix uniti: {len(prop['fixes'])} → ops: {len(prop['ops'])}")
+    if gate.get("dropped"):
+        print(f"Scartate in apply: {len(gate['dropped'])} "
+              f"({'; '.join(str(d.get('reason', ''))[:60] for d in gate['dropped'][:3])})")
     print(f"Gate: {gate['before'][0]}→{gate['after'][0]} errori, "
           f"{gate['before'][1]}→{gate['after'][1]} warning — "
           f"{'ACCETTATA' if gate['applied'] else 'RIFIUTATA: ' + gate['detail']}")

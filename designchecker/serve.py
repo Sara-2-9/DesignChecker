@@ -570,6 +570,13 @@ class Bridge:
         gate = patcher.gate_propose(screen, prop["ops"], validate_fn)
         dur = time.monotonic() - t0
         before, after = gate["before"], gate["after"]
+        dropped = gate.get("dropped", [])
+        if dropped:
+            _emit(f"gate apply: {len(gate['ops'])} ops applicate, {len(dropped)} scartate")
+            for d in dropped[:5]:
+                op = d.get("op", {}) if isinstance(d, dict) else {}
+                why = d.get("reason", "") if isinstance(d, dict) else ""
+                self._log(f"    scartata {op.get('op')} {op.get('path')} — {why}")
         _emit(f"gate validatore: {before[0]}→{after[0]} errori, {before[1]}→{after[1]} warning "
               f"in {dur:.1f}s — {'ACCETTATA' if gate['applied'] else 'RIFIUTATA: ' + gate['detail'][:120]}")
 
@@ -585,7 +592,8 @@ class Bridge:
                                    "theme": theme, "before": list(before),
                                    "after": list(after), "applied": gate["applied"],
                                    "sources": [s["url"] for s in prop["sources"]],
-                                   "ops": len(gate["ops"])})
+                                   "ops": len(gate["ops"]),
+                                   "dropped": len(dropped)})
         if gate["applied"]:
             out_dir = self.root / "imports"
             out_dir.mkdir(exist_ok=True)
