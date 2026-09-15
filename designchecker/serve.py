@@ -55,6 +55,15 @@ class Bridge:
         if self.log_enabled:
             print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
+    def client_log(self, message: str) -> dict:
+        """D43: eventi che accadono DENTRO Figma (es. selezione di un frame)
+        inoltrati dal plugin al log del terminale — il bridge altrimenti non
+        potrebbe mai vederli. Troncato per sicurezza, nessuna scrittura."""
+        message = str(message).strip()[:200]
+        if message:
+            self._log(f"🖥 plugin: {message}")
+        return {"ok": True}
+
     def _log_block(self, title: str, text: str) -> None:
         """Blocco multi-riga nel log (D38): prompt e risposte AI completi.
         Attivo solo con --verbose: il traffico AI e' lungo, il default
@@ -478,6 +487,9 @@ def make_handler(bridge: Bridge):
             elif self.path == "/fix":
                 self._send(200, bridge.ai_fix(screen, context=payload.get("context"),
                                               platform=platform, theme=theme))
+            elif self.path == "/client-log":
+                # eventi lato Figma (selezione frame, D43): solo log, nessuna scrittura
+                self._send(200, bridge.client_log(payload.get("message", "")))
             else:
                 self._send(404, {"error": "endpoint sconosciuto"})
 

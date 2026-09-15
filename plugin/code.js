@@ -795,8 +795,8 @@ let watchedNodeId = null;
 let debounceTimer = null;
 
 function currentTargetNode() {
-  const sel = figma.currentPage.selection;
-  if (sel.length && ['FRAME', 'COMPONENT', 'INSTANCE', 'COMPONENT_SET'].includes(sel[0].type)) return sel[0];
+  const d = describeSelection();
+  if (d && d.valid) return figma.getNodeById(d.id);
   if (watchedNodeId) {
     const node = figma.getNodeById(watchedNodeId);
     if (node) return node;
@@ -819,8 +819,21 @@ figma.on('documentchange', () => {
   debounceTimer = setTimeout(exportAndAskValidation, 900);
 });
 
+// D43: la selezione viene SEMPRE comunicata alla UI (anche senza watch) —
+// il plugin deve dire cosa vede, non lasciare l'utente nel dubbio.
+const EXPORTABLE = ['FRAME', 'COMPONENT', 'INSTANCE', 'COMPONENT_SET'];
+
+function describeSelection() {
+  const sel = figma.currentPage.selection;
+  if (!sel.length) return null;
+  const n = sel[0];
+  return { id: n.id, name: n.name, kind: n.type, valid: EXPORTABLE.includes(n.type) };
+}
+
 figma.on('selectionchange', () => {
-  if (watching) exportAndAskValidation();
+  const d = describeSelection();
+  figma.ui.postMessage({ type: 'selection-changed', node: d });
+  if (watching && d && d.valid) exportAndAskValidation();
 });
 
 // ---------------------------------------------------------------- messaggi UI
@@ -832,10 +845,17 @@ figma.ui.onmessage = async (msg) => {
     HEX_TO_TOKEN = (msg.tokens && msg.tokens.hex_to_token) || {};
     TOKEN_FLAT = (msg.tokens && msg.tokens.flat) || {};
   }
+  if (msg.type === 'ui-ready') {
+    // all'apertura la UI chiede lo stato della selezione corrente (D43)
+    figma.ui.postMessage({ type: 'selection-changed', node: describeSelection() });
+  }
   if (msg.type === 'export-selection') {
     const node = currentTargetNode();
     if (!node) {
-      figma.ui.postMessage({ type: 'error', message: 'Seleziona un frame sul canvas (la schermata).' });
+      const d = describeSelection();
+      figma.ui.postMessage({ type: 'error', message: d
+        ? 'Hai selezionato "' + d.name + '" (' + d.kind + '): non e\' un frame. Seleziona il frame della schermata.'
+        : 'Seleziona un frame sul canvas (la schermata).' });
       return;
     }
     watchedNodeId = node.id;

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 import unittest
 import urllib.request
@@ -593,3 +594,75 @@ class TestBridgeTheme(unittest.TestCase):
             result = Bridge(ROOT).import_screen(self._screen("#FFFFFF"),
                                                 theme="dark")
         self.assertEqual(result["theme"], "dark")
+
+
+class TestClientLog(unittest.TestCase):
+    """D43: gli eventi dentro Figma (selezione frame) arrivano nel log del
+    terminale tramite il plugin — il bridge non potrebbe vederli altrimenti."""
+
+    def test_messaggio_loggato(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            Bridge(ROOT).client_log('frame "Pay" selezionato')
+        self.assertIn('🖥 plugin: frame "Pay" selezionato', buf.getvalue())
+
+    def test_troncato_e_vuoto_ignorato(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            Bridge(ROOT).client_log("")
+            Bridge(ROOT).client_log("x" * 500)
+        out = buf.getvalue()
+        self.assertNotIn("plugin: \n", out)          # vuoto non loggato
+        line = [l for l in out.splitlines() if "plugin:" in l][0]
+        self.assertLessEqual(len(line), 230)          # messaggio troncato
+
+    def test_quiet_silenzia_anche_il_plugin(self):
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            Bridge(ROOT, log=False).client_log('frame "Pay" selezionato')
+        self.assertEqual(buf.getvalue(), "")
+
+
+class TestPluginSintassi(unittest.TestCase):
+    """Il plugin e' JS scritto a mano: un typo romperebbe tutto in Figma.
+    node --check su code.js e sullo <script> estratto da ui.html."""
+
+    def _node_check(self, path: Path):
+        import subprocess
+        r = subprocess.run(["node", "--check", str(path)],
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, f"{path.name}: {r.stderr}")
+
+    def test_code_js_sintassi(self):
+        self._node_check(ROOT / "plugin" / "code.js")
+
+    def test_ui_html_script_sintassi(self):
+        import re
+        import tempfile
+        html = (ROOT / "plugin" / "ui.html").read_text(encoding="utf-8")
+        m = re.search(r"<script>(.*?)</script>", html, re.S)
+        self.assertIsNotNone(m)
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+            f.write(m.group(1))
+            tmp = Path(f.name)
+        try:
+            self._node_check(tmp)
+        finally:
+            tmp.unlink()
+
+    def test_code_js_notifica_sempre_la_selezione(self):
+        """D43: selectionchange posta selection-changed anche senza watch."""
+        js = (ROOT / "plugin" / "code.js").read_text(encoding="utf-8")
+        handler = re.search(r"figma\.on\('selectionchange'.*?\n\}\);", js, re.S)
+        self.assertIsNotNone(handler)
+        body = handler.group(0)
+        self.assertIn("selection-changed", body)
+        # il postMessage NON deve essere dentro il ramo watching
+        self.assertLess(body.find("selection-changed"),
+                        body.find("watching"))

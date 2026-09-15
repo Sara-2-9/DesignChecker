@@ -386,3 +386,30 @@ violazioni. (normalize_ops ignora il campo "note": e' solo comunicazione
 all'utente nel log.)
 
 164 test OK.
+
+## D43 — Feedback di selezione: il plugin dice sempre cosa vede (2026-09)
+
+Sintomo (Sara): selezionando un frame in Figma a volte il plugin "non sente"
+la selezione e nei log non appare mai "Frame <nome> selezionato". Diagnosi:
+1. `selectionchange` in code.js agiva SOLO con il watch attivo — senza watch
+   non c'era proprio nulla in ascolto, zero feedback.
+2. Selezionando un elemento DENTRO il frame (testo, bottone) invece del
+   frame, `currentTargetNode()` lo scartava silenziosamente tenendo il nodo
+   vecchio — dall'esterno: "non ha sentito niente".
+3. La selezione vive dentro Figma: il bridge (terminale) non poteva vederla.
+
+Cura:
+1. **code.js** — `selectionchange` posta SEMPRE alla UI `selection-changed`
+   {id, name, kind, valid} (o null). Con watch attivo, l'export parte solo
+   se la NUOVA selezione e' valida (niente piu' export silenzioso del nodo
+   vecchio). All'apertura la UI manda `ui-ready` e riceve subito lo stato
+   della selezione (anche a bridge spento). Errore export piu' onesto:
+   "hai selezionato 'X' (TEXT): non e' un frame".
+2. **ui.html** — riga dedicata sopra il bottone: 'selezionato: "Pay"
+   (FRAME)' / 'nessuna selezione' / '"X" e' un TEXT, non un frame…'.
+3. **bridge** — nuovo endpoint POST /client-log (solo log, nessuna
+   scrittura, messaggio troncato a 200): la UI inoltra fire-and-forget
+   "frame 'Pay' selezionato" → `[HH:MM:SS] 🖥 plugin: frame "Pay"
+   selezionato` nel terminale. --quiet lo silenzia come gli altri log.
+
+170 test OK.

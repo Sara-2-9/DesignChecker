@@ -24,6 +24,8 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .dot.on { background: #30d158; } .dot.off { background: #ff453a; }
   #status { color: #999; font-size: 11px; }
+  #selection { color: #ccc; font-size: 11px; font-weight: 600; }
+  #selection.invalid { color: #ffb340; font-weight: 400; }
   #findings { margin-top: 10px; overflow-y: auto; max-height: 300px; }
   .finding {
     border-left: 3px solid #666; padding: 6px 8px; margin-bottom: 6px;
@@ -70,6 +72,9 @@
         <option value="dark">Dark</option>
       </select>
     </label>
+  </div>
+  <div class="row">
+    <span id="selection">nessuna selezione sul canvas</span>
   </div>
   <div class="row">
     <button id="btn-export" disabled>Esporta selezione e valida</button>
@@ -301,9 +306,45 @@ $('btn-fix').onclick = async () => {
   setAiBusy(false);
 };
 
+// D43: la selezione sul canvas e' sempre visibile qui e nel log del bridge.
+let lastLoggedSelection = null;
+
+function clientLog(message) {
+  // fire-and-forget: se il bridge e' giu' non deve succedere nulla
+  fetch(BRIDGE + '/client-log', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  }).catch(() => {});
+}
+
+function showSelection(node) {
+  const el = $('selection');
+  if (!node) {
+    el.textContent = 'nessuna selezione sul canvas';
+    el.className = '';
+    return;
+  }
+  if (node.valid) {
+    el.textContent = 'selezionato: "' + node.name + '" (' + node.kind + ')';
+    el.className = '';
+    if (node.id !== lastLoggedSelection) {
+      lastLoggedSelection = node.id;
+      clientLog('frame "' + node.name + '" selezionato');
+    }
+  } else {
+    el.textContent = '"' + node.name + '" e\' un ' + node.kind +
+      ', non un frame — seleziona il frame della schermata';
+    el.className = 'invalid';
+  }
+}
+
 window.onmessage = async (event) => {
   const msg = event.data.pluginMessage;
   if (!msg) return;
+  if (msg.type === 'selection-changed') {
+    showSelection(msg.node);
+    return;
+  }
   if (msg.type === 'screen-exported') {
     lastMap = msg.map || {};
     try {
@@ -373,6 +414,9 @@ $('btn-render').onclick = async () => {
 $('btn-clear').onclick = () => {
   parent.postMessage({ pluginMessage: { type: 'clear-annotations' } }, '*');
 };
+
+// D43: chiedi subito lo stato della selezione (indipendente dal bridge)
+parent.postMessage({ pluginMessage: { type: 'ui-ready' } }, '*');
 
 boot();
 </script>
