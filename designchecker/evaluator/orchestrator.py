@@ -125,28 +125,46 @@ def run_propose(screen: dict, findings: list | None = None,
         flist = "(baseline disattivata: nessuna influenza del validatore)"
         _phase(log, emit, "baseline disattivata: il padre lavora solo da JSON+PNG+ricerca")
 
-    # 5. fan-out figli
+    # 5. fan-out figli in parallelo (thread): il tempo totale diventa il
+    # max dei figli invece della somma (~9 min -> ~2 min nel test Pay-Frame).
+    # L'ordine di merge resta quello di SUBAGENTS per determinismo.
     idx = _nodes_index(screen)
     token_block = ("TOKEN (path → valore nel tema; unici validi):\n"
                    + ("\n".join(f"- {p} → {(token_values or {}).get(p, p)}"
                                 for p in (token_paths or [])[:60])
                       if token_paths else "(nessun catalogo token)"))
+    _phase(log, emit, f"fan-out parallelo: {len(SUBAGENTS)} sub-agent insieme")
     all_fixes: list = []
-    for spec in SUBAGENTS:
-        _phase(log, emit, f"call sub-agent {spec['id']} ({spec['title']})")
-        # sottoinsieme nodi: tutti per MVP (i figli filtrano da soli la porzione)
+    import concurrent.futures as _fut
+    import time as _time
+
+    def _run_one(spec: dict) -> tuple[str, list, float, str]:
         msgs = build_sub_messages(spec["id"], screen, idx, token_block,
                                   research_txt + f"\nFINDINGS (parere, non verita'): {flist}",
                                   role, goal, platform, theme)
+        t0 = _time.monotonic()
         try:
             fixes = parse_sub_fixes(chat_fn(msgs))
+            return spec["id"], fixes, _time.monotonic() - t0, ""
         except Exception as e:
-            log.append(f"sub-agent {spec['id']} fallito ({str(e)[:80]})")
-            continue
-        _phase(log, emit, f"sub-agent {spec['id']} done: {len(fixes)} fix")
-        for fx in fixes:
-            fx["_from"] = spec["id"]
-        all_fixes.extend(fixes)
+            return spec["id"], [], _time.monotonic() - t0, str(e)[:80]
+
+    with _fut.ThreadPoolExecutor(max_workers=len(SUBAGENTS)) as pool:
+        future_of = {pool.submit(_run_one, spec): spec for spec in SUBAGENTS}
+        pending = set(future_of)
+        for spec in SUBAGENTS:
+            # ritira nell'ordine di SUBAGENTS (deterministico) man mano che finiscono
+            fut = next(f for f in future_of if future_of[f]["id"] == spec["id"])
+            pending.discard(fut)
+            _phase(log, emit, f"call sub-agent {spec['id']} ({spec['title']})")
+            sid, fixes, dur, err = fut.result()
+            if err:
+                log.append(f"sub-agent {sid} fallito ({err})")
+                continue
+            _phase(log, emit, f"sub-agent {sid} done: {len(fixes)} fix in {dur:.0f}s")
+            for fx in fixes:
+                fx["_from"] = sid
+            all_fixes.extend(fixes)
 
     # 6. merge: deduplica per (node, key), ultimo vince, max 80 per propose
     _phase(log, emit, f"padre merge {len(all_fixes)} fix → patch unica + check coerenza scopo")
