@@ -459,6 +459,26 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
 
 # ── Propose gate (flusso padre+figli): stessa regola del fix, piu' ops ──
 
+def normalize_ops_tolerant(screen: dict, ops) -> tuple[list, list]:
+    """Normalizza un fix alla volta. Ritorna (ops_validi, scartati).
+
+    Un singolo fix allucinato (nodo inesistente, key vuota) non uccide piu'
+    gli altri: bug Pay-Frame dove 72 fix diventavano 0 ops. Ogni scarto e'
+    motivato come (nodo, motivo) per il log."""
+    if not isinstance(ops, list):
+        return [], [("?", "la patch non e' un array JSON")]
+    good: list = []
+    bad: list[tuple[str, str]] = []
+    for op in ops:
+        try:
+            good.extend(normalize_ops(screen, [op]))
+        except PatchError as e:
+            node = "?"
+            if isinstance(op, dict):
+                node = str(op.get("node", op.get("path", "?")))
+            bad.append((node, str(e)))
+    return good, bad
+
 def gate_propose(screen: dict, ops: list, validate_fn) -> dict:
     """Applica ops (gia' normalizzate per node-id) e decide col validatore.
 

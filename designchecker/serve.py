@@ -430,6 +430,22 @@ class Bridge:
         self._log(f"  preview: PNG del frame salvato ({info['kb']} KB)")
         return info
 
+    def _save_propose_input(self, screen_id: str, screen: dict) -> None:
+        """Snapshot nascosto dell'input di /propose per riproducibilita'.
+
+        imports/.<id>.propose-input.json (nascosto come i sidecar: non appare
+        in /screens). Senza input salvato il test Pay-Frame non era
+        riproducibile: restavano solo preview ed eval."""
+        try:
+            safe = "".join(c for c in screen_id if c.isalnum() or c in "-_") or "screen"
+            out_dir = self.root / "imports"
+            out_dir.mkdir(exist_ok=True)
+            (out_dir / f".{safe}.propose-input.json").write_text(
+                json.dumps(screen, indent=2, ensure_ascii=False), encoding="utf-8")
+            self._log(f"  input salvato: imports/.{safe}.propose-input.json")
+        except Exception:
+            pass
+
     def _log_eval(self, screen_id: str, entry: dict) -> None:
         """Audit del perche' (D17): ruolo, fonti, divergenze, esito gate."""
         import json as _json
@@ -473,12 +489,15 @@ class Bridge:
         from . import ai as _ai
         from . import patcher
         from .evaluator.orchestrator import run_propose
+        from .evaluator.websearch import duckduckgo_search
         p, model, config = self._ai_provider()
         if p is None:
             return {"error": "Provider AI non configurato: lancia `dck ai`"}
         platform = self._resolve_platform(screen, platform)
         theme = resolve_theme(screen, self.tokens, theme)
         screen_id = screen.get("meta", {}).get("id", "screen")
+        if search_fn is None:
+            search_fn = duckduckgo_search  # ricerca reale, stdlib, mai eccezioni
 
         def _emit(t: str) -> None:
             self._log(f"  {t}")
@@ -491,13 +510,13 @@ class Bridge:
         self._log(f"→ /propose dal plugin: screen '{screen_id}' [{platform} · tema {theme}]"
                   f"{' + contesto' if context else ''}"
                   f"{' (baseline OFF: solo JSON+PNG+ricerca)' if not baseline else ''}")
+        self._save_propose_input(screen_id, screen)
         preview = self._save_preview(screen_id, preview_base64)
         if preview_base64 and not preview:
             _emit("vision non disponibile: valuto dal solo JSON")
         elif preview and not _ai.supports_vision(p, model):
             _emit("modello senza vision dichiarata: il PNG resta agli atti, valuto dal JSON")
 
-        applicable = rules_for_platform(self.rules, platform)
         base = self.validate_screen(screen, platform, theme)
         _emit(f"baseline deterministica: {base['errors']} errori, "
               f"{len(base['findings']) - base['errors']} warning (parere, non verita')")
@@ -506,7 +525,21 @@ class Bridge:
                         for path in self.tokens.flat}
 
         def chat_fn(messages):
-            return _ai.chat(p, model, messages, config)
+            # --verbose: prompt e risposte completi anche per /propose,
+            # come gia' avviene per /review e /fix (D38)
+            for m in messages:
+                content = m.get("content", "")
+                if isinstance(content, list):
+                    text = "\n".join(p.get("text", "") for p in content
+                                     if isinstance(p, dict) and p.get("type") == "text")
+                    if any(isinstance(p, dict) and p.get("type") == "image_url"
+                           for p in content):
+                        text += "\n[+ PNG del frame allegato]"
+                    content = text
+                self._log_block(f"PROMPT → AI [{m.get('role')}]", str(content))
+            raw = _ai.chat(p, model, messages, config)
+            self._log_block("RISPOSTA ← AI (grezza)", raw)
+            return raw
 
         t0 = time.monotonic()
         def base_findings():
@@ -745,7 +778,7 @@ def serve(root: Path, port: int = DEFAULT_PORT, autogen: Path | None = None,
               "cosa valida, cosa scrive, cosa manda all'AI (--quiet per spegnerlo)")
     if verbose_ai:
         print("Verbose AI attivo: vedrai il PROMPT completo inviato al modello "
-              "e la RISPOSTA grezza che torna, per ogni /review e /fix")
+              "e la RISPOSTA grezza che torna, per ogni /review, /fix e /propose")
     elif log:
         print("  (vuoi vedere anche prompt e risposte AI completi? "
               "riavvia con --verbose)")

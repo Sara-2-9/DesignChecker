@@ -63,7 +63,8 @@ SUB_SYSTEM = """Sei il sottoagente {sid} ({title}) di DesignChecker per il fluss
 Ruolo screen: {role} — scopo: {goal}.
 Valuta SOLO la tua porzione (brief sotto), mantenendo lo scopo che il designer vuole costruire.
 BRIEF: {brief}
-Rispondi SOLO con un array JSON di fix, niente testo fuori, max 12 fix:
+Rispondi SOLO con un array JSON di fix, niente testo fuori, max 5 fix MIRATI
+(qualita' sopra quantita': niente riempitivi, solo problemi veri con id nodo visto):
 [{{"node": "<id-nodo-visto>", "key": "style/color|style/background|props/label|layout/gap|a11y/label|...",
    "op": "replace|remove", "value": "...", "why": "<una riga>", "source_url": "<URL dalle fonti o regola id>"}}]
 Usa SOLO token dalla lista TOKEN se cambi colori/spazi (mai inventare path). Identita' cromatica inviolabile: dark resta dark."""
@@ -109,6 +110,6 @@ def parse_sub_fixes(raw: str) -> list:
             continue
         op.setdefault("op", "replace")
         out.append(op)
-        if len(out) >= 12:
+        if len(out) >= 6:  # prompt ne chiede 5, margine 1 per tolleranza
             break
     return out

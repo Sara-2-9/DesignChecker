@@ -157,5 +157,94 @@ class TestProposeGate(unittest.TestCase):
         self.assertIn("troppe operazioni", gate["detail"])
 
 
+class TestTolerantNormalize(unittest.TestCase):
+    """Regressione Pay-Frame: 72 fix con 1 allucinato diventavano 0 ops."""
+
+    def test_keeps_good_drops_bad(self):
+        scr = _screen()
+        fixes = [
+            {"op": "replace", "node": "add-btn", "key": "props/label",
+             "value": "Add funds"},
+            {"op": "replace", "node": "nodo-che-non-esiste", "key": "props/label",
+             "value": "X"},
+        ]
+        ops, dropped = patcher.normalize_ops_tolerant(scr, fixes)
+        self.assertEqual(len(ops), 1)
+        self.assertEqual(len(dropped), 1)
+        self.assertIn("nodo-che-non-esiste", dropped[0][0])
+
+    def test_all_bad_gives_empty_ops(self):
+        scr = _screen()
+        ops, dropped = patcher.normalize_ops_tolerant(
+            scr, [{"op": "replace", "node": "fantasma", "key": "x", "value": 1}])
+        self.assertEqual(ops, [])
+        self.assertEqual(len(dropped), 1)
+
+    def test_orchestrator_survives_bad_fixes(self):
+        from designchecker.evaluator.orchestrator import run_propose
+        scr = _screen()
+
+        def chat(msgs):
+            txt = str(msgs)
+            if "classificatore di ruolo" in txt:
+                return '{"role": "wallet-home", "user_goal": "g"}'
+            if "padre valutatore" in txt:
+                return "[]"
+            if "Ricercatore UX" in txt:
+                return '{"queries": []}'
+            return ('[{"node": "add-btn", "key": "props/label", "value": "A"},'
+                    ' {"node": "fantasma", "key": "props/label", "value": "B"}]')
+        res = run_propose(scr, [], chat_fn=chat, search_fn=None, baseline=False)
+        self.assertTrue(len(res["ops"]) >= 1)
+        self.assertTrue(any("scartati" in l for l in res["log"]))
+
+
+class TestFocusedFixes(unittest.TestCase):
+    def test_prompt_asks_five(self):
+        from designchecker.evaluator.subagents import SUB_SYSTEM
+        self.assertIn("max 5", SUB_SYSTEM)
+
+    def test_parse_caps_padding(self):
+        many = [{"node": f"n{i}", "key": "props/label", "value": "x"}
+                for i in range(20)]
+        import json as _json
+        out = S.parse_sub_fixes(_json.dumps(many))
+        self.assertLessEqual(len(out), 6)
+
+
+class TestTokenOrdering(unittest.TestCase):
+    def test_used_tokens_first(self):
+        from designchecker.evaluator.orchestrator import _token_block
+        scr = _screen()  # usa {color.surface} e {color.text-primary}
+        block = _token_block(["color.brand.primary", "color.surface",
+                              "spacing.4", "color.text-primary"],
+                             {p: p for p in ["color.brand.primary", "color.surface",
+                                             "spacing.4", "color.text-primary"]},
+                             scr)
+        first = block.splitlines()[1]
+        self.assertIn("color.surface", first)
+
+
+class TestWebsearch(unittest.TestCase):
+    FIXTURE = ('<div class="result"><div class="result__body">'
+               '<a rel="nofollow" class="result__a" '
+               'href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fwallet&amp;rut=x">'
+               'Wallet UX guide</a>'
+               '<a class="result__snippet" href="x">snippet testo</a>'
+               '</div></div>')
+
+    def test_parse_fixture_no_network(self):
+        from designchecker.evaluator.websearch import parse_duckduckgo
+        out = parse_duckduckgo(self.FIXTURE)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["url"], "https://example.com/wallet")
+        self.assertIn("Wallet", out[0]["title"])
+
+    def test_search_never_raises(self):
+        from designchecker.evaluator import websearch
+        self.assertEqual(websearch.duckduckgo_search("   "), [])
+        self.assertEqual(websearch.parse_duckduckgo(""), [])
+
+
 if __name__ == "__main__":
     unittest.main()

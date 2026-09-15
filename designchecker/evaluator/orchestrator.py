@@ -45,6 +45,41 @@ def _phase(log: list, emit, text: str) -> None:
             pass
 
 
+def _token_block(token_paths: list | None, token_values: dict | None,
+                 screen: dict) -> str:
+    """Catalogo token ordinato per rilevanza: prima i token gia' usati dallo
+    screen (quelli che il figlio deve riusare per fix cromatici), poi
+    color/spacing/radius/typography, poi il resto. Il vecchio taglio ai primi
+    60 path poteva escludere proprio il token giusto (bug Pay-Frame: i fix su
+    `bg` non avevano alternativa visibile)."""
+    if not token_paths:
+        return "(nessun catalogo token)"
+    used: set[str] = set()
+
+    def walk(n):
+        if not isinstance(n, dict):
+            return
+        for section in ("style", "layout"):
+            for v in (n.get(section, {}) or {}).values():
+                vals = v.values() if isinstance(v, dict) else [v]
+                for item in vals:
+                    if isinstance(item, str) and item.startswith("{") and item.endswith("}"):
+                        used.add(item[1:-1])
+        for c in n.get("children", []) or []:
+            walk(c)
+    walk(screen.get("root", {}) or {})
+
+    def rank(p: str) -> tuple:
+        group = p.split(".")[0] if "." in p else p
+        return (0 if p in used else 1,
+                {"color": 0, "spacing": 1, "radius": 2, "typography": 3}.get(group, 4),
+                p)
+
+    ordered = sorted(dict.fromkeys(token_paths), key=rank)[:120]
+    lines = "\n".join(f"- {p} → {(token_values or {}).get(p, p)}" for p in ordered)
+    return f"TOKEN (path → valore nel tema; unici validi):\n{lines}"
+
+
 def run_propose(screen: dict, findings: list | None = None,
                 chat_fn=None, search_fn=None,
                 token_paths: list | None = None,
@@ -57,7 +92,6 @@ def run_propose(screen: dict, findings: list | None = None,
                 emit=None) -> dict:
     """Esegue l'intero giro padre+figli. Ritorna dict con role, sources,
     blind, fixes, ops, log. La validazione finale (gate) resta fuori."""
-    from ..patcher import normalize_ops
     log: list[str] = []
     findings = findings or []
 
@@ -129,10 +163,7 @@ def run_propose(screen: dict, findings: list | None = None,
     # max dei figli invece della somma (~9 min -> ~2 min nel test Pay-Frame).
     # L'ordine di merge resta quello di SUBAGENTS per determinismo.
     idx = _nodes_index(screen)
-    token_block = ("TOKEN (path → valore nel tema; unici validi):\n"
-                   + ("\n".join(f"- {p} → {(token_values or {}).get(p, p)}"
-                                for p in (token_paths or [])[:60])
-                      if token_paths else "(nessun catalogo token)"))
+    token_block = _token_block(token_paths, token_values, screen)
     _phase(log, emit, f"fan-out parallelo: {len(SUBAGENTS)} sub-agent insieme")
     all_fixes: list = []
     import concurrent.futures as _fut
@@ -166,18 +197,26 @@ def run_propose(screen: dict, findings: list | None = None,
                 fx["_from"] = sid
             all_fixes.extend(fixes)
 
-    # 6. merge: deduplica per (node, key), ultimo vince, max 80 per propose
+    # 6. merge: deduplica per (node, key), ultimo vince, max 80 per propose.
+    # Normalizzazione TOLLERANTE: un fix allucinato viene scartato da solo,
+    # gli altri passano (mai piu' 72 fix -> 0 ops come nel test Pay-Frame).
     _phase(log, emit, f"padre merge {len(all_fixes)} fix → patch unica + check coerenza scopo")
     merged: dict[tuple, dict] = {}
     for fx in all_fixes:
         key = (str(fx.get("node", "")), str(fx.get("key", fx.get("path", ""))))
         merged[key] = fx
     fixes = list(merged.values())[:80]
-    try:
-        ops = normalize_ops(screen, fixes)
-    except Exception as e:
-        log.append(f"merge: patch non normalizzabile ({e})")
-        ops = []
+    from ..patcher import normalize_ops_tolerant
+    ops, dropped = normalize_ops_tolerant(screen, fixes)
+    if dropped:
+        log.append(f"merge: {len(dropped)} fix scartati (nodo inesistente o key invalida)")
+        for node, why in dropped[:5]:
+            log.append(f"  scartato '{node}': {why}")
+        if emit is not None:
+            try:
+                emit(f"merge: {len(dropped)} fix scartati, {len(ops)} ops valide")
+            except Exception:
+                pass
 
     return {"role": role_info, "sources": sources, "dropped": dropped,
             "blind": blind[:5] if isinstance(blind, list) else [],

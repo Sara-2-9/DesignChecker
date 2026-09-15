@@ -295,7 +295,8 @@ def _evaluator_command(args, root: Path, rules) -> None:
           f"{len([f for f in findings if f.severity=='warning'])} warning"
           f"{' (OFF: padre cieco)' if not baseline else ''}")
 
-    prop = run_propose(screen, findings, chat_fn, search_fn=None,
+    from .evaluator.websearch import duckduckgo_search
+    prop = run_propose(screen, findings, chat_fn, search_fn=duckduckgo_search,
                        token_paths=list(tokens.flat), token_values=token_values,
                        context=args.context, platform=platform, theme=theme,
                        preview_base64=preview_b64, baseline=baseline,
