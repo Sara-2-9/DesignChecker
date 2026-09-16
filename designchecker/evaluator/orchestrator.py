@@ -80,6 +80,121 @@ def _token_block(token_paths: list | None, token_values: dict | None,
     return f"TOKEN (path → valore nel tema; unici validi):\n{lines}"
 
 
+def _design_dna(screen: dict, token_values: dict | None = None) -> str:
+    """DNA visivo estratto dal frame reale: il padre (che ha visto il PNG)
+    lo distilla in testo per i figli bendati. Senza, ogni figlio inventa
+    un grigio diverso e il merge diventa patchwork (bug Pay-Frame)."""
+    bgs: dict[str, int] = {}
+    txts: dict[str, int] = {}
+    radii: dict[str, int] = {}
+    variants: dict[str, int] = {}
+
+    def walk(n):
+        if not isinstance(n, dict):
+            return
+        st, pr = n.get("style", {}) or {}, n.get("props", {}) or {}
+        for k, d in (("background", bgs), ("color", txts), ("radius", radii)):
+            v = st.get(k)
+            if isinstance(v, str):
+                d[v] = d.get(v, 0) + 1
+        if isinstance(pr.get("variant"), str):
+            variants[pr["variant"]] = variants.get(pr["variant"], 0) + 1
+        for c in n.get("children", []) or []:
+            walk(c)
+    walk(screen.get("root", {}) or {})
+
+    def top(d: dict, n: int = 3) -> str:
+        items = sorted(d.items(), key=lambda kv: -kv[1])[:n]
+        return ", ".join(f"{k}×{v}" for k, v in items) or "—"
+
+    def val(ref: str) -> str:
+        if token_values and ref.startswith("{") and ref.endswith("}"):
+            return str(token_values.get(ref[1:-1], ref))
+        return ref
+    bg_show = ", ".join(
+        f"{k}({val(k)})×{v}" for k, v in sorted(bgs.items(), key=lambda kv: -kv[1])[:3]
+    ) or "—"
+    return ("DNA VISIVO (preserva: evolvi dentro questi, non aggiungere nuove "
+            "superfici/colori salvo brand):\n"
+            f"- superfici: {bg_show}\n"
+            f"- testi: {top(txts)}\n"
+            f"- radius: {top(radii)}\n"
+            f"- varianti tipo: {top(variants)}")
+
+
+def _platform_dialect(platform: str | None) -> str:
+    if platform == "ios":
+        return ("DIALETTO iOS 26 Liquid Glass: superfici scure (#000 sfondo, "
+                "card secondarie), corner continui 16-22, task circoscritto in "
+                "sheet con grabber+scrim (mai overlay fullscreen nero), CTA filled "
+                "unica, gerarchia con colore+spazio non ombre.")
+    if platform == "android":
+        return ("DIALETTO Material 3 expressive: superfici tonal, corner 12-28, "
+                "FAB singolo, CTA filled/tonal unica, stati pressed/disabled visibili.")
+    return ("DIALETTO custom: vincoli piu' stretti delle due piattaforme, "
+            "convenzioni singole adattabili.")
+
+
+def _coherence_polish(screen: dict, fixes: list) -> tuple[list, list[str]]:
+    """Polish di coerenza del padre: scarta i fix che sporcano il DNA.
+
+    - doppio background contenitore+figlio identico (es. add-money Stack e
+      rectangle-5432 entrambi primary): tiene il figlio, scarta il padre;
+    - tetto superfici/testi distinti: oltre 4 bg o 3 colori testo, scarta gli
+      ultimi arrivati. Ritorna (fixes_tenuti, note_log)."""
+    notes: list[str] = []
+    parent_of: dict[str, str | None] = {}
+    by_id: dict[str, dict] = {}
+
+    def walk(n, parent):
+        if not isinstance(n, dict):
+            return
+        if n.get("id"):
+            by_id[n["id"]] = n
+            parent_of[n["id"]] = parent.get("id") if isinstance(parent, dict) else None
+        for c in n.get("children", []) or []:
+            walk(c, n)
+    walk(screen.get("root", {}) or {}, None)
+
+    bg_fix: dict[str, str] = {}
+    for fx in fixes:
+        if isinstance(fx, dict) and fx.get("key") == "style/background":
+            bg_fix[str(fx.get("node"))] = str(fx.get("value"))
+    drop: set[int] = set()
+    for i, fx in enumerate(fixes):
+        if not isinstance(fx, dict) or fx.get("key") != "style/background":
+            continue
+        nid, val = str(fx.get("node")), str(fx.get("value"))
+        node = by_id.get(nid, {})
+        for c in (node.get("children", []) or []):
+            cid = c.get("id") if isinstance(c, dict) else None
+            if cid and bg_fix.get(cid) == val:
+                drop.add(i)
+                notes.append(f"coerenza: bg ridondante su contenitore '{nid}' (tiene figlio)")
+                break
+    kept = [fx for i, fx in enumerate(fixes) if i not in drop]
+    bgs: set[str] = set()
+    txts: set[str] = set()
+
+    def collect(n):
+        st = n.get("style", {}) or {} if isinstance(n, dict) else {}
+        if isinstance(st.get("background"), str):
+            bgs.add(st["background"])
+        if isinstance(st.get("color"), str):
+            txts.add(st["color"])
+        for c in (n.get("children", []) or []):
+            collect(c)
+    collect(screen.get("root", {}) or {})
+    for fx in kept:
+        if isinstance(fx, dict) and fx.get("key") == "style/background":
+            bgs.add(str(fx.get("value")))
+        if isinstance(fx, dict) and fx.get("key") == "style/color":
+            txts.add(str(fx.get("value")))
+    if len(bgs) > 4 or len(txts) > 3:
+        notes.append(f"coerenza: superfici {len(bgs)}, testi {len(txts)} — oltre il tetto (4/3)")
+    return kept, notes
+
+
 def run_propose(screen: dict, findings: list | None = None,
                 chat_fn=None, search_fn=None,
                 token_paths: list | None = None,
@@ -149,6 +264,11 @@ def run_propose(screen: dict, findings: list | None = None,
             if len(sources) >= 8:
                 break
         log.append(f"research fallback: {len(sources)} fonti")
+    if not sources:
+        if search_fn is None:
+            log.append("research: nessuno search_fn (offline/test) — i figli lavorano da regolamento")
+        else:
+            log.append("research: 0 fonti (rete fallita o query vuote) — i figli lavorano da regolamento")
     research_txt = research_block(sources)
 
     # 4. riconciliazione con findings (solo se baseline attiva)
@@ -158,6 +278,17 @@ def run_propose(screen: dict, findings: list | None = None,
     else:
         flist = "(baseline disattivata: nessuna influenza del validatore)"
         _phase(log, emit, "baseline disattivata: il padre lavora solo da JSON+PNG+ricerca")
+
+    # 4b. direzione estetica: DNA + dialetto + diagnosi cieca riusata.
+    # La blind era calcolata e mai usata (token buttati); ora guida i figli.
+    style_block = _design_dna(screen, token_values) + "\n" + _platform_dialect(platform)
+    if isinstance(blind, list) and blind:
+        issues = "; ".join(
+            f"{b.get('node')}: {b.get('issue')}" for b in blind[:5]
+            if isinstance(b, dict) and b.get("node"))
+        blind_txt = f"DIAGNOSI CIECA DEL PADRE (dal PNG reale, priorita'): {issues}" if issues else ""
+    else:
+        blind_txt = ""
 
     # 5. fan-out figli in parallelo (thread): il tempo totale diventa il
     # max dei figli invece della somma (~9 min -> ~2 min nel test Pay-Frame).
@@ -172,7 +303,8 @@ def run_propose(screen: dict, findings: list | None = None,
     def _run_one(spec: dict) -> tuple[str, list, float, str]:
         msgs = build_sub_messages(spec["id"], screen, idx, token_block,
                                   research_txt + f"\nFINDINGS (parere, non verita'): {flist}",
-                                  role, goal, platform, theme)
+                                  role, goal, platform, theme,
+                                  style_block=style_block, blind_txt=blind_txt)
         t0 = _time.monotonic()
         try:
             fixes = parse_sub_fixes(chat_fn(msgs))
@@ -200,12 +332,22 @@ def run_propose(screen: dict, findings: list | None = None,
     # 6. merge: deduplica per (node, key), ultimo vince, max 80 per propose.
     # Normalizzazione TOLLERANTE: un fix allucinato viene scartato da solo,
     # gli altri passano (mai piu' 72 fix -> 0 ops come nel test Pay-Frame).
+    # Polish di coerenza: via i bg ridondanti contenitore+figlio prima di
+    # normalizzare, cosi' non doppiamo il verde della CTA.
     _phase(log, emit, f"padre merge {len(all_fixes)} fix → patch unica + check coerenza scopo")
     merged: dict[tuple, dict] = {}
     for fx in all_fixes:
         key = (str(fx.get("node", "")), str(fx.get("key", fx.get("path", ""))))
         merged[key] = fx
     fixes = list(merged.values())[:80]
+    fixes, polish_notes = _coherence_polish(screen, fixes)
+    for note in polish_notes:
+        log.append(note)
+        if emit is not None:
+            try:
+                emit(note)
+            except Exception:
+                pass
     from ..patcher import normalize_ops_tolerant
     ops, dropped = normalize_ops_tolerant(screen, fixes)
     if dropped:

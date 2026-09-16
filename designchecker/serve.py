@@ -40,10 +40,12 @@ class Bridge:
 
     def __init__(self, root: Path, autogen: Path | None = None,
                  log: bool = True, verbose_ai: bool = False):
+        import threading as _th
         self.root = root
         self.autogen = Path(autogen).expanduser() if autogen else None
         self.log_enabled = log
         self.verbose_ai = verbose_ai
+        self._log_lock = _th.Lock()
         self.rules = load_rules(root / "rules")
         self.catalog = load_catalog(root / "components.catalog.yaml")
         self.tokens = TokenStore(load_tokens(root / "examples" / "tokens.json"))
@@ -67,14 +69,17 @@ class Bridge:
     def _log_block(self, title: str, text: str) -> None:
         """Blocco multi-riga nel log (D38): prompt e risposte AI completi.
         Attivo solo con --verbose: il traffico AI e' lungo, il default
-        resta leggibile a colpo d'occhio."""
+        resta leggibile a colpo d'occhio. Lock: i sub-agent girano in
+        thread paralleli, senza lock le righe si interleave e il log
+        diventa illeggibile (bug Pay-Frame)."""
         if not (self.log_enabled and self.verbose_ai):
             return
         lines = text.splitlines() or [""]
-        self._log(f"  ┌─ {title} ({len(text)} caratteri, {len(lines)} righe)")
-        for ln in lines:
-            print(f"  │ {ln}", flush=True)
-        print("  └─", flush=True)
+        with self._log_lock:
+            self._log(f"  ┌─ {title} ({len(text)} caratteri, {len(lines)} righe)")
+            for ln in lines:
+                print(f"  │ {ln}", flush=True)
+            print("  └─", flush=True)
 
     @staticmethod
     def _count_nodes(node: dict) -> int:

@@ -96,9 +96,21 @@ class FigmaImporter:
         self.tokens = tokens
         self.catalog = catalog
         self.id_to_name: dict[str, str] = {}
+        self._used: dict[str, int] = {}
         # mappa inversa: hex -> path token, tutte le varianti di tema (D42)
         # (per riconoscere i colori gia' tokenizzabili, light E dark)
         self.hex_to_token: dict[str, str] = hex_to_token_map(tokens)
+
+    def _unique_id(self, base: str) -> str:
+        """ID univoci per export: 'bg' duplicato -> 'bg', 'bg-2', 'bg-3'.
+
+        I frame Figma riusano spesso gli stessi nomi (Rectangle 253 x4, bg x2):
+        senza dedup il patcher per node-id applica il fix a un solo gemello
+        e il validatore continua a segnalare gli altri (bug Pay-Frame)."""
+        base = (base or "node").strip() or "node"
+        n = self._used.get(base, 0)
+        self._used[base] = n + 1
+        return base if n == 0 else f"{base}-{n + 1}"
 
     # ------------------------------------------------------------ utilities
 
@@ -178,7 +190,7 @@ class FigmaImporter:
             return None
 
         if ntype == "VECTOR":
-            return {"id": kebab(name), "type": "Icon",
+            return {"id": self._unique_id(kebab(name) or "icon"), "type": "Icon",
                     "props": {"name": _norm(name) or "icon"},
                     "layout": {}, "style": {},
                     "meta": {"source": "figma", "confidence": 0.9}}
@@ -186,7 +198,7 @@ class FigmaImporter:
         if ntype == "TEXT":
             font_size = (node.get("style") or {}).get("fontSize", 16)
             out = {
-                "id": kebab(name) or "text",
+                "id": self._unique_id(kebab(name) or "text"),
                 "type": "Text",
                 "props": {"content": node.get("characters", ""),
                           "variant": self._text_variant(float(font_size))},
@@ -217,7 +229,7 @@ class FigmaImporter:
         traits = set(entry.get("traits", []))
 
         out: dict = {
-            "id": kebab(name) or "node",
+            "id": self._unique_id(kebab(name) or "node"),
             "type": dc_type,
             "props": {},
             "layout": {},
@@ -292,6 +304,7 @@ class FigmaImporter:
     def convert_screen(self, document: dict, frame_name: str) -> dict | None:
         """Cerca il frame top-level per nome e lo converte in screen JSON."""
         self._index_names(document)
+        self._used = {}
         for page in document.get("children", []) or []:
             for frame in page.get("children", []) or []:
                 if frame.get("name", "").lower() == frame_name.lower():

@@ -110,15 +110,19 @@ def apply_patch(doc: dict, ops: list, max_ops: int = MAX_OPS) -> dict:
 
 # ── Patch indirizzata per id di nodo (D41) ───────────────────────────
 
-def _node_paths(screen: dict) -> dict[str, str]:
-    """Mappa id nodo -> JSON Pointer path reale nell'albero."""
-    paths: dict[str, str] = {}
+def _node_paths(screen: dict) -> dict[str, list[str]]:
+    """Mappa id nodo -> lista di JSON Pointer reali nell'albero.
+
+    Gli export storici (pre-dedup) possono contenere ID duplicati
+    ('bg' x2, 'rectangle-253' x4): un fix per node-id viene espanso a
+    TUTTI i gemelli, altrimenti meta' degli errori resta aperta."""
+    paths: dict[str, list[str]] = {}
 
     def walk(node, path):
         if not isinstance(node, dict):
             return
         if node.get("id"):
-            paths[node["id"]] = path
+            paths.setdefault(node["id"], []).append(path)
         for i, ch in enumerate(node.get("children", []) or []):
             walk(ch, f"{path}/children/{i}")
 
@@ -126,6 +130,20 @@ def _node_paths(screen: dict) -> dict[str, str]:
     if isinstance(root, dict):
         walk(root, "/root")
     return paths
+
+
+def _coerce_value(key: str, value):
+    """Normalizza i tipi: min_height/height/size numerici come int.
+
+    Il modello risponde spesso "50" (stringa): il validatore/codegen
+    leggono numeri, la stringa rendeva il fix inefficace ma valido."""
+    last = str(key or "").strip("/").split("/")[-1]
+    if last in ("min_height", "height", "size") and isinstance(value, str):
+        try:
+            return int(float(value.strip()))
+        except (ValueError, AttributeError):
+            return value
+    return value
 
 
 def normalize_ops(screen: dict, ops) -> list:
@@ -140,33 +158,36 @@ def normalize_ops(screen: dict, ops) -> list:
     - "node" + "key" -> path reale calcolato QUI (deterministico);
     - replace/add su chiave di nodo diventano upsert (RFC 'add': crea la
       chiave se manca — sparisce la classe d'errore 'chiave inesistente');
+    - ID duplicati (export storici) -> espansi a tutti i gemelli;
     - le operazioni con "path" (RFC 6902 classico) passano invariate.
     """
     if not isinstance(ops, list):
         return ops
-    paths: dict[str, str] | None = None
+    paths: dict[str, list[str]] | None = None
     out: list[dict] = []
     for i, op in enumerate(ops):
         if isinstance(op, dict) and "node" in op and "path" not in op:
             if paths is None:
                 paths = _node_paths(screen)
             node_id = str(op.get("node", ""))
-            base = paths.get(node_id)
-            if base is None:
+            bases = paths.get(node_id)
+            if not bases:
                 raise PatchError(
                     f"operazione {i}: nodo '{node_id}' non trovato nello screen "
                     f"(usa gli id dei NODI COINVOLTI)")
             key = str(op.get("key", "")).strip("/")
             if not key:
                 raise PatchError(f"operazione {i}: 'key' mancante")
-            pointer = base + "/" + "/".join(
+            suffix = "/".join(
                 t.replace("~", "~0").replace("/", "~1") for t in key.split("/"))
             kind = op.get("op", "replace")
-            translated = {"op": "remove" if kind == "remove" else "add",
-                          "path": pointer}
-            if kind != "remove":
-                translated["value"] = op.get("value")
-            out.append(translated)
+            value = _coerce_value(key, op.get("value"))
+            for base in bases:
+                translated = {"op": "remove" if kind == "remove" else "add",
+                              "path": base + "/" + suffix}
+                if kind != "remove":
+                    translated["value"] = value
+                out.append(translated)
         else:
             out.append(op)
     return out
@@ -463,13 +484,15 @@ def fix_loop(screen: dict, findings: list, validate_fn, chat_fn,
 # viene scartato con log invece di avvelenare la patch (bug Pay-Frame #2:
 # layout/height, style/background-pressed, props/enabled... inventate dal
 # modello e mai lette da validatore/codegen).
+# layout/frame ammesso: senza, un copy piu' lungo (CTA) tronca di sicuro
+# perche' nessuna op puo' allargare il bottone (bug Pay-Frame "Add $15 to wal").
 _ALLOWED_KEYS = {
     "style": {"color", "background", "radius", "foreground"},
     "props": {"label", "action", "min_height", "height", "size",
               "placeholder", "content", "variant", "confirm", "tabs",
               "asset", "route", "name", "message", "action_label"},
     "layout": {"direction", "gap", "padding", "sizing", "align",
-               "safe_area", "position", "offset"},
+               "safe_area", "position", "offset", "frame"},
     "a11y": {"label", "role"},
     "semantics": {"primary_action", "destructive", "navigation_role"},
     "meta": {"exceptions"},
@@ -481,6 +504,48 @@ def _key_allowed(key: str) -> bool:
     return (len(parts) >= 2 and parts[0] in _ALLOWED_KEYS
             and parts[1] in _ALLOWED_KEYS[parts[0]])
 
+def _expand_frame_for_longer_copy(screen: dict, fixes: list) -> list:
+    """Co-fix automatico: se un fix allunga il testo, allarga il frame.
+
+    Bug Pay-Frame: 'Add 15 $' -> 'Add $15 to wallet' con frame w:70 fisso
+    = 'Add $15 to wal' troncato. Il modello dimentica il co-fix; lo facciamo
+    noi in modo deterministico (stima 8px/char + 16px padding)."""
+    idx: dict[str, dict] = {}
+
+    def walk(n):
+        if not isinstance(n, dict):
+            return
+        if n.get("id"):
+            idx.setdefault(n["id"], n)
+        for c in n.get("children", []) or []:
+            walk(c)
+    walk(screen.get("root", {}) or {})
+    extra: list = []
+    for op in fixes:
+        if not isinstance(op, dict) or op.get("key") not in (
+                "props/content", "props/label"):
+            continue
+        node = idx.get(str(op.get("node", "")))
+        new_text = str(op.get("value", ""))
+        if not node or not new_text:
+            continue
+        old_text = str((node.get("props", {}) or {}).get(
+            "content" if op["key"] == "props/content" else "label", ""))
+        if len(new_text) <= len(old_text):
+            continue
+        frame = (node.get("layout", {}) or {}).get("frame") or {}
+        w = frame.get("w")
+        if not isinstance(w, (int, float)) or w <= 0:
+            continue
+        need = len(new_text) * 8 + 16
+        if need > w:
+            nf = dict(frame)
+            nf["w"] = int(need)
+            extra.append({"op": "replace", "node": node["id"],
+                          "key": "layout/frame", "value": nf})
+    return extra
+
+
 def normalize_ops_tolerant(screen: dict, ops) -> tuple[list, list]:
     """Normalizza un fix alla volta. Ritorna (ops_validi, scartati).
 
@@ -491,6 +556,11 @@ def normalize_ops_tolerant(screen: dict, ops) -> tuple[list, list]:
         return [], [("?", "la patch non e' un array JSON")]
     good: list = []
     bad: list[tuple[str, str]] = []
+    # co-fix copy+frame prima della normalizzazione (chiavi node-based)
+    try:
+        ops = list(ops) + _expand_frame_for_longer_copy(screen, ops)
+    except Exception:
+        pass
     for op in ops:
         if isinstance(op, dict) and "node" in op and "path" not in op:
             key = str(op.get("key", ""))
@@ -531,15 +601,49 @@ def apply_patch_tolerant(doc: dict, ops: list,
                 dropped.append({"op": op, "reason": msg})
     return out, applied, dropped
 
+def _culprit_ops(screen: dict, applied: list, before_keys: set,
+                 validate_fn) -> tuple[list, list]:
+    """Trova le ops che da sole introducono nuovi errori.
+
+    Il validatore e' deterministico e veloce (ms): testare ogni op da sola
+    sullo screen originale costa poco e individua il colpevole preciso
+    (es. hex hard-coded scritto su un nodo che aveva gia' un token).
+    Le ops non attribuibili da sole restano tenute: la rete finale resta
+    il controllo sui new_keys dell'insieme."""
+    culprits: list = []
+    kept: list = []
+    for op in applied:
+        try:
+            single = apply_patch(screen, [op])
+        except PatchError:
+            kept.append(op)
+            continue
+        try:
+            errs, _ = validate_fn(single)
+        except Exception:
+            kept.append(op)
+            continue
+        if {(f.rule_id, f.node_id) for f in errs} - before_keys:
+            culprits.append(op)
+        else:
+            kept.append(op)
+    return culprits, kept
+
+
 def gate_propose(screen: dict, ops: list, validate_fn) -> dict:
     """Applica ops (gia' normalizzate per node-id) e decide col validatore.
 
-    Accettata solo se riduce gli errori senza aumentare i warning.
+    Accettata solo se:
+    - riduce gli errori di almeno MIN_FIXES senza aumentare i warning;
+    - non introduce NUOVI errori (coppie rule/node mai viste prima).
+    Il conteggio da solo premiava patch che fissano 4 hardcoded e ne
+    rompono 1 di contrasto (Pay-Frame: 23->20 con regressione CTA).
     Usa MAX_OPS_PROPOSE (redesign) invece di MAX_OPS (fix puntuale).
     Ritorna {"applied", "screen", "ops", "before", "after", "detail"}.
     """
     errors, warnings = validate_fn(screen)
     before = (len(errors), len(warnings))
+    before_keys = {(f.rule_id, f.node_id) for f in errors}
     if not isinstance(ops, list):
         return {"applied": False, "screen": screen, "ops": [],
                 "before": before, "after": before, "dropped": [],
@@ -551,9 +655,35 @@ def gate_propose(screen: dict, ops: list, validate_fn) -> dict:
     patched, applied, dropped = apply_patch_tolerant(screen, ops)
     n_errors, n_warnings = validate_fn(patched)
     after = (len(n_errors), len(n_warnings))
-    if after[0] < before[0] and after[1] <= before[1]:
+    after_keys = {(f.rule_id, f.node_id) for f in n_errors}
+    new_keys = sorted(after_keys - before_keys)
+    if new_keys:
+        # Gate tollerante (stessa filosofia di normalize/apply): invece di
+        # buttare l'intera patch per 1-2 ops cattive, scarta solo le colpevoli
+        # e rivaluta il resto. Pay-Frame: 2 hex su nodi gia' tokenizzati
+        # uccidevano 10+ fix buoni (23->22 RIFIUTATA invece di ~23->20).
+        culprits, kept = _culprit_ops(screen, applied, before_keys, validate_fn)
+        if culprits and kept:
+            for c in culprits:
+                dropped.append({"op": c,
+                                "reason": "gate: introduce nuovi errori, scartata"})
+            patched, applied, dropped2 = apply_patch_tolerant(screen, kept)
+            dropped.extend(dropped2)
+            n_errors, n_warnings = validate_fn(patched)
+            after = (len(n_errors), len(n_warnings))
+            after_keys = {(f.rule_id, f.node_id) for f in n_errors}
+            new_keys = sorted(after_keys - before_keys)
+    if new_keys:
+        detail = "regressione: " + "; ".join(f"{r} su '{n}'" for r, n in new_keys[:5])
+        return {"applied": False, "screen": screen, "ops": [],
+                "before": before, "after": after, "dropped": dropped, "detail": detail}
+    fixed = before[0] - after[0]
+    min_fixes = 2 if before[0] >= 10 else 1
+    if after[0] < before[0] and after[1] <= before[1] and fixed >= min_fixes:
         return {"applied": True, "screen": patched, "ops": applied,
                 "before": before, "after": after, "dropped": dropped, "detail": ""}
     detail = "; ".join(f"{f.rule_id} su '{f.node_id}'" for f in n_errors[:5])
+    if fixed < min_fixes and after[0] < before[0]:
+        detail = f"miglioramento insufficiente ({fixed} < {min_fixes} min): {detail}"
     return {"applied": False, "screen": screen, "ops": [],
             "before": before, "after": after, "dropped": dropped, "detail": detail}

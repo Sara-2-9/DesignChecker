@@ -144,5 +144,26 @@ class TestImportColoriDark(unittest.TestCase):
         self.assertEqual(importer._token_or_value("#0088FF"), "#0088FF")
 
 
+class TestDedupId(unittest.TestCase):
+    """Bug Pay-Frame: 'bg' x2, 'rectangle-253' x4 -> patcher applicava a un gemello solo."""
+
+    def test_nomi_duplicati_diventano_id_univoci(self):
+        tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        catalog = load_catalog(ROOT / "components.catalog.yaml")
+        importer = FigmaImporter(tokens, catalog)
+        doc = {"children": [{"name": "P", "children": [
+            {"name": "Pay", "type": "FRAME", "children": [
+                {"name": "bg", "type": "RECTANGLE"},
+                {"name": "bg", "type": "RECTANGLE"},
+                {"name": "Rectangle 253", "type": "RECTANGLE"},
+                {"name": "Rectangle 253", "type": "RECTANGLE"},
+            ]}]}]}
+        scr = importer.convert_screen(doc, "Pay")
+        ids = [c["id"] for c in scr["root"]["children"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertIn("bg", ids)
+        self.assertIn("bg-2", ids)
+
+
 if __name__ == "__main__":
     unittest.main()

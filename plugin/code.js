@@ -10,6 +10,14 @@
 let CATALOG = null;       // {Screen: {traits: [...]}, ...}
 let HEX_TO_TOKEN = {};    // "#RRGGBB" -> "color.brand.primary"
 let TOKEN_FLAT = {};      // path -> valore risolto (per il render)
+let USED_IDS = {};        // dedup id per export: 'bg' x2 -> 'bg', 'bg-2'
+
+function uniqueId(base) {
+  base = (base || 'node').trim() || 'node';
+  const n = USED_IDS[base] || 0;
+  USED_IDS[base] = n + 1;
+  return n === 0 ? base : base + '-' + (n + 1);
+}
 
 const ALIASES = {
   tabbar: 'TabBar', navbar: 'TabBar', navigationbar: 'TabBar',
@@ -246,7 +254,7 @@ function convertNode(node, topLevel, parentBox) {
 
   if (node.type === 'VECTOR') {
     const out = withGeo({
-      id: kebab(name), type: 'Icon',
+      id: uniqueId(kebab(name) || 'icon'), type: 'Icon',
       props: { name: norm(name) || 'icon' },
       layout: {}, style: {},
       meta: { source: 'figma-plugin', confidence: 0.9 },
@@ -257,7 +265,7 @@ function convertNode(node, topLevel, parentBox) {
 
   if (node.type === 'TEXT') {
     const out = {
-      id: kebab(name) || 'text', type: 'Text',
+      id: uniqueId(kebab(name) || 'text'), type: 'Text',
       props: { content: node.characters || '', variant: textVariant(Number(node.fontSize) || 16) },
       layout: { sizing: { w: 'hug', h: 'hug' } },
       style: {},
@@ -287,7 +295,7 @@ function convertNode(node, topLevel, parentBox) {
 
   const traits = traitsOf(dcType);
   const out = {
-    id: kebab(name) || 'node',
+    id: uniqueId(kebab(name) || 'node'),
     type: dcType,
     props: {},
     layout: {},
@@ -386,6 +394,7 @@ async function exportPreview(node) {
 
 function exportFrame(node) {
   exportMap = {};
+  USED_IDS = {};
   pendingAssets = [];
   const root = convertNode(node, true, node.absoluteBoundingBox);
   return {
@@ -523,6 +532,7 @@ async function renderNode(node, parent, isRoot) {
     t.fontName = { family: 'Inter', style: props.variant === 'title' || props.variant === 'heading' ? 'Bold' : 'Regular' };
     t.fontSize = fontSizeFor(props.variant);
     t.characters = props.content || '';
+    try { t.textAutoResize = 'WIDTH_AND_HEIGHT'; } catch (e) { /* versioni vecchie */ }
     const color = hexToFigmaColor(tokenValue((node.style || {}).color));
     if (color) t.fills = [{ type: 'SOLID', color: color }];
     t.name = 'Text: ' + (node.id || '');
@@ -541,18 +551,29 @@ async function renderNode(node, parent, isRoot) {
     frame.layoutMode = 'HORIZONTAL';
     frame.primaryAxisAlignItems = 'CENTER';
     frame.counterAxisAlignItems = 'CENTER';
+    // label visiva: mai la stringa 'Button' su stepper senza label.
+    // plus/minus -> glifi, altrimenti props.label; le label a11y verbali
+    // ('Increase amount by $5') restano allo screen reader, non sul canvas.
+    const nid = String(node.id || '').toLowerCase();
+    let visual = props.label || props.content || '';
+    if (!visual) {
+      if (nid.includes('plus')) visual = '+';
+      else if (nid.includes('minus')) visual = '−';
+      else visual = 'Button';
+    }
     if (isFab) { frame.primaryAxisSizingMode = 'FIXED'; frame.counterAxisSizingMode = 'FIXED'; frame.resize(56, 56); }
     else {
       frame.primaryAxisSizingMode = 'AUTO'; frame.counterAxisSizingMode = 'FIXED';
       frame.paddingLeft = frame.paddingRight = 16;
-      frame.resize(120, num(props.min_height, 48));
+      const w = Math.max(120, String(visual).length * 9 + 32);
+      frame.resize(w, num(props.min_height, 48));
       frame.primaryAxisSizingMode = 'AUTO';
     }
     parent.appendChild(frame);
     const label = figma.createText();
     label.fontName = { family: 'Inter', style: 'Medium' };
     label.fontSize = fontSizeFor('body');
-    label.characters = props.label || (isFab ? '+' : 'Button');
+    label.characters = visual;
     label.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
     frame.appendChild(label);
     if (isFab && parent.layoutMode) {
@@ -700,12 +721,18 @@ async function renderNodeFaithful(node, parent) {
     t.fontName = { family: 'Inter', style: props.variant === 'title' || props.variant === 'heading' ? 'Bold' : 'Regular' };
     t.fontSize = fontSizeFor(props.variant);
     t.characters = props.content || '';
+    try { t.textAutoResize = 'WIDTH_AND_HEIGHT'; } catch (e) { /* versioni vecchie */ }
     const color = hexToFigmaColor(tokenValue(style.color));
     if (color) t.fills = [{ type: 'SOLID', color: color }];
     t.name = 'Text: ' + (node.id || '');
     t.setPluginData('dc_id', node.id || '');
     parent.appendChild(t);
     if (f) { t.x = f.x; t.y = f.y; }
+    // se il frame storico e' piu' stretto del testo allungato, allarga:
+    // evita 'Add $15 to wal' troncato quando il co-fix manca nei vecchi JSON.
+    try {
+      if (f && t.width > f.w) { t.resize(Math.ceil(t.width), Math.max(t.height, 1)); }
+    } catch (e) { /* ok */ }
     return;
   }
 

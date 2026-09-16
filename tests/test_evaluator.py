@@ -303,5 +303,125 @@ class TestKeyAllowlist(unittest.TestCase):
         self.assertEqual(len(dropped), 3)
 
 
+class TestGateNoRegression(unittest.TestCase):
+    """Pay-Frame: 23->20 con 1 nuovo errore contrasto veniva accettata."""
+
+    def test_rejects_patch_with_new_error(self):
+        from designchecker.validator import Finding
+        before = [Finding("a", "error", "n1", "m"),
+                  Finding("b", "error", "n2", "m"),
+                  Finding("c", "error", "n3", "m"),
+                  Finding("d", "error", "n4", "m"),
+                  Finding("e", "error", "n5", "m")]
+        after = [Finding("a", "error", "n1", "m"),
+                 Finding("b", "error", "n2", "m"),
+                 Finding("NEW", "error", "nx", "m")]
+        calls = {"n": 0}
+
+        def vf(s):
+            calls["n"] += 1
+            return (before, []) if calls["n"] == 1 else (after, [])
+        gate = patcher.gate_propose({"root": {"id": "r"}},
+                                    [{"op": "add", "path": "/root/x", "value": 1}], vf)
+        self.assertFalse(gate["applied"])
+        self.assertIn("regressione", gate["detail"])
+
+    def test_rejects_trivial_improvement(self):
+        from designchecker.validator import Finding
+        b10 = [Finding("e", "error", f"n{i}", "m") for i in range(10)]
+        a9 = [Finding("e", "error", f"n{i}", "m") for i in range(9)]
+        calls = {"n": 0}
+
+        def vf(s):
+            calls["n"] += 1
+            return (b10, []) if calls["n"] == 1 else (a9, [])
+        gate = patcher.gate_propose({"root": {"id": "r"}},
+                                    [{"op": "add", "path": "/root/x", "value": 1}], vf)
+        self.assertFalse(gate["applied"])
+
+    def test_drops_culprit_keeps_good(self):
+        """Pay-Frame 16/09: 2 hex su nodi gia' tokenizzati uccidevano 10 fix
+        buoni. Il gate scarta solo le colpevoli e accetta il resto."""
+        from designchecker.validator import Finding
+        scr = {"root": {"id": "r", "props": {}}}
+        ops = [
+            {"op": "add", "path": "/root/props/fixed", "value": True},
+            {"op": "add", "path": "/root/props/broken", "value": True},
+        ]
+
+        def vf(s):
+            errs = []
+            if not s["root"].get("props", {}).get("fixed"):
+                errs.append(Finding("a", "error", "n1", "m"))
+            if s["root"].get("props", {}).get("broken"):
+                errs.append(Finding("NEW", "error", "nx", "m"))
+            return errs, []
+        gate = patcher.gate_propose(scr, ops, vf)
+        self.assertTrue(gate["applied"])
+        self.assertEqual(gate["before"], (1, 0))
+        self.assertEqual(gate["after"], (0, 0))
+        self.assertTrue(any("gate:" in d.get("reason", "") for d in gate["dropped"]))
+
+    def test_rejects_when_all_ops_are_culprits(self):
+        from designchecker.validator import Finding
+        scr = {"root": {"id": "r", "props": {}}}
+
+        def vf(s):
+            if s["root"].get("props", {}).get("broken"):
+                return [Finding("NEW", "error", "nx", "m")], []
+            return [Finding("a", "error", "n1", "m")], []
+        gate = patcher.gate_propose(
+            scr, [{"op": "add", "path": "/root/props/broken", "value": True}], vf)
+        self.assertFalse(gate["applied"])
+        self.assertIn("regressione", gate["detail"])
+
+
+class TestCopyFrameCofix(unittest.TestCase):
+    """Pay-Frame: 'Add 15 $' -> 'Add $15 to wallet' con w:70 = troncato."""
+
+    def test_longer_copy_expands_frame(self):
+        scr = {"root": {"id": "r", "children": [
+            {"id": "cta", "type": "Text",
+             "props": {"content": "Add 15 $", "variant": "body"},
+             "layout": {"frame": {"x": 36, "y": 8, "w": 70, "h": 22}}}]}}
+        fixes = [{"op": "replace", "node": "cta", "key": "props/content",
+                  "value": "Add $15 to wallet"}]
+        ops, _ = patcher.normalize_ops_tolerant(scr, fixes)
+        self.assertTrue(any("layout/frame" in o["path"] for o in ops))
+
+    def test_min_height_string_coerced(self):
+        scr = {"root": {"id": "r", "children": [{"id": "b", "type": "Button"}]}}
+        ops = patcher.normalize_ops(
+            scr, [{"op": "replace", "node": "b", "key": "props/min_height",
+                   "value": "50"}])
+        self.assertEqual(ops[0]["value"], 50)
+
+
+class TestCoherencePolish(unittest.TestCase):
+    def test_drops_redundant_container_bg(self):
+        from designchecker.evaluator.orchestrator import _coherence_polish
+        scr = {"root": {"id": "r", "children": [
+            {"id": "wrap", "type": "Stack", "children": [
+                {"id": "inner", "type": "Stack"}]}]}}
+        fixes = [
+            {"op": "replace", "node": "wrap", "key": "style/background",
+             "value": "{color.brand.primary}"},
+            {"op": "replace", "node": "inner", "key": "style/background",
+             "value": "{color.brand.primary}"},
+        ]
+        kept, _ = _coherence_polish(scr, fixes)
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0]["node"], "inner")
+
+    def test_duplicate_ids_expand_to_twins(self):
+        scr = {"root": {"id": "r", "children": [
+            {"id": "bg", "type": "Stack"},
+            {"id": "bg", "type": "Stack"}]}}
+        ops = patcher.normalize_ops(
+            scr, [{"op": "replace", "node": "bg", "key": "style/background",
+                   "value": "{color.surface}"}])
+        self.assertEqual(len(ops), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

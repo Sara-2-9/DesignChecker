@@ -28,14 +28,19 @@ def is_valid_url(url: str) -> bool:
 
 def queries_for_role(role: str, platform: str | None = None) -> list[str]:
     """Query di fallback via codice (usate se il modello non chiama il tool
-    o per il primo giro). Mirate per ruolo + piattaforma."""
+    o per il primo giro). Mirate per ruolo + piattaforma + linguaggio visuale."""
     base = role.replace("-", " ")
     plat = f" {platform}" if platform in ("ios", "android") else " mobile app"
-    return [
+    out = [
         f"{base} screen UX best practices 2026{plat}",
         f"{base} mobile UI empty loading error states 2026",
         f"{base} accessibility trust UX writing 2026",
     ]
+    if platform == "ios":
+        out.append(f"iOS 26 Liquid Glass {base} design HIG 2026")
+    elif platform == "android":
+        out.append(f"Material 3 expressive {base} design 2026")
+    return out
 
 
 def _cache_path(cache_dir: Path | None, role: str) -> Path | None:
