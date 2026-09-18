@@ -61,19 +61,23 @@ def _solid_hex(fills) -> str | None:
     return None
 
 
-def _fill_hex(fills) -> tuple[str | None, str | None]:
-    """Sfondo di un nodo: (hex, visual_bg).
+def _fill_hex(fills) -> tuple[str | None, str | None, float]:
+    """Sfondo di un nodo: (hex, visual_bg, opacity).
 
     Gradiente -> media pesata (alpha) degli stop, con visual_bg='gradient':
     approssimazione dichiarata per i controlli di contrasto (D30).
-    Immagine -> (None, 'image'): nessun colore estraibile.
+    Immagine -> (None, 'image', opacity): nessun colore estraibile.
+    opacity e' quella del fill scelto (1 se opaco).
     """
     for fill in fills or []:
         if not fill.get("visible", True):
             continue
+        opacity = fill.get("opacity", 1)
+        if not isinstance(opacity, (int, float)):
+            opacity = 1
         ftype = fill.get("type", "")
         if ftype == "SOLID":
-            return _rgb_hex(fill["color"]), None
+            return _rgb_hex(fill["color"]), None, float(opacity)
         if ftype.startswith("GRADIENT"):
             stops = fill.get("gradientStops", []) or []
             if stops:
@@ -81,10 +85,64 @@ def _fill_hex(fills) -> tuple[str | None, str | None]:
                 avg = {ch: sum(s["color"].get(ch, 0) * s["color"].get("a", 1)
                                for s in stops) / total_a
                        for ch in ("r", "g", "b")}
-                return _rgb_hex(avg), "gradient"
+                return _rgb_hex(avg), "gradient", float(opacity)
         if ftype == "IMAGE":
-            return None, "image"
-    return None, None
+            return None, "image", float(opacity)
+    return None, None, 1
+
+
+def _backdrop_blur(effects) -> float | None:
+    """Effetto vetro (BACKGROUND_BLUR): raggio o None. Solo questo effetto
+    per ora; ombre ed altri restano fuori schema (P1)."""
+    if not isinstance(effects, list):
+        return None
+    for e in effects:
+        if not isinstance(e, dict) or not e.get("visible", True):
+            continue
+        if e.get("type") != "BACKGROUND_BLUR":
+            continue
+        radius = e.get("radius")
+        return round(float(radius), 1) if isinstance(radius, (int, float)) else 0
+    return None
+
+
+def _effect_info(effects, token_or_value) -> list | None:
+    """Tutti gli effetti visibili in forma seriale (ombre, blur, vetro).
+    token_or_value: funzione hex->token dell'importer. Mai inventare."""
+    if not isinstance(effects, list):
+        return None
+    out = []
+    for e in effects:
+        if not isinstance(e, dict) or not e.get("visible", True):
+            continue
+        t = e.get("type")
+        is_shadow = t in ("DROP_SHADOW", "INNER_SHADOW")
+        is_blur = t in ("LAYER_BLUR", "BACKGROUND_BLUR")
+        if not is_shadow and not is_blur:
+            continue
+        item: dict = {"type": t}
+        radius = e.get("radius")
+        if isinstance(radius, (int, float)):
+            item["radius"] = round(float(radius), 1)
+        if is_shadow:
+            offset = e.get("offset") or {}
+            ox, oy = offset.get("x", 0), offset.get("y", 0)
+            if ox or oy:
+                item["offset"] = {"x": round(float(ox), 1),
+                                  "y": round(float(oy), 1)}
+            spread = e.get("spread", 0)
+            if isinstance(spread, (int, float)) and spread != 0:
+                item["spread"] = round(float(spread), 1)
+            color = e.get("color") or {}
+            if isinstance(color, dict) and {"r", "g", "b"} <= set(color):
+                item["color"] = token_or_value(_rgb_hex(color))
+                a = color.get("a", 1)
+                if isinstance(a, (int, float)) and a < 1:
+                    item["opacity"] = round(float(a), 3)
+            if e.get("blendMode") not in (None, "NORMAL"):
+                item["blendMode"] = e["blendMode"]
+        out.append(item)
+    return out or None
 
 
 def _has_image_fill(fills) -> bool:
@@ -126,6 +184,33 @@ class FigmaImporter:
         path = self.hex_to_token.get(hex_color.upper())
         return f"{{{path}}}" if path else hex_color
 
+    def _stroke_info(self, node: dict) -> dict | None:
+        """Primo bordo solido visibile: {color, weight?, align?} o None.
+
+        Stessa forma del plugin (code.js strokeInfo): il colore passa per
+        tokenOrHex, i pesi misti e l'opacita' per-fill non sono modellati.
+        Tutti gli accessi con guard: la REST puo' non riportare un campo."""
+        strokes = node.get("strokes")
+        if not isinstance(strokes, list):
+            return None
+        for s in strokes:
+            if not isinstance(s, dict) or not s.get("visible", True):
+                continue
+            if s.get("type") != "SOLID":
+                continue
+            color = s.get("color")
+            if not isinstance(color, dict):
+                continue
+            out = {"color": self._token_or_value(_rgb_hex(color))}
+            weight = node.get("strokeWeight")
+            if isinstance(weight, (int, float)):
+                out["weight"] = round(float(weight), 2)
+            align = node.get("strokeAlign")
+            if align and align != "CENTER":
+                out["align"] = align
+            return out
+        return None
+
     def _spacing_token(self, px) -> str | float:
         value = dimension_to_float(px) or 0
         for path in self.tokens.flat:
@@ -150,6 +235,11 @@ class FigmaImporter:
         for alias, type_name in ALIASES.items():
             if norm.startswith(alias):
                 return type_name, 0.75
+        # suffisso come nel plugin (code.js catalogMatch): "Toggle - Switch"
+        # finisce per "switch" -> Switch. Senza, REST e plugin divergevano.
+        for alias, type_name in ALIASES.items():
+            if norm.endswith(alias):
+                return type_name, 0.7
         return None, 0.0
 
     def _text_variant(self, font_size: float) -> str:
@@ -196,22 +286,63 @@ class FigmaImporter:
                     "meta": {"source": "figma", "confidence": 0.9}}
 
         if ntype == "TEXT":
-            font_size = (node.get("style") or {}).get("fontSize", 16)
+            style = node.get("style") or {}
+            try:
+                font_size = float(style.get("fontSize", 16))
+            except (TypeError, ValueError):
+                font_size = 16.0
             out = {
                 "id": self._unique_id(kebab(name) or "text"),
                 "type": "Text",
                 "props": {"content": node.get("characters", ""),
-                          "variant": self._text_variant(float(font_size))},
+                          "variant": self._text_variant(font_size),
+                          "fontSize": round(font_size, 1)},
                 "layout": {"sizing": {"w": "hug", "h": "hug"}},
                 "style": {},
                 "meta": {"source": "figma", "confidence": 1.0},
             }
+            # famiglia/peso dal PostScript ("SFProText-Semibold" -> famiglia +
+            # stile): dato reale, non inventato. Senza trattino, solo famiglia.
+            ps = style.get("fontPostScriptName", "")
+            if isinstance(ps, str) and "-" in ps:
+                fam, _, sty = ps.rpartition("-")
+                if fam:
+                    out["props"]["fontFamily"] = fam[:60]
+                if sty:
+                    out["props"]["fontStyle"] = sty[:40]
+            elif isinstance(style.get("fontFamily"), str) and style["fontFamily"]:
+                out["props"]["fontFamily"] = style["fontFamily"][:60]
+            for key, prop in (("textAlignHorizontal", "align"),
+                              ("textAlignVertical", "valign")):
+                val = style.get(key)
+                if isinstance(val, str) and val not in ("LEFT", "TOP", ""):
+                    # LEFT/TOP sono i default Figma: si omettono per non
+                    # gonfiare il JSON (vale anche per gli altri default sotto)
+                    out["props"][prop] = val
+            lh = style.get("lineHeightPx")
+            if isinstance(lh, (int, float)) and lh > 0:
+                out["props"]["lineHeight"] = {"unit": "PIXELS",
+                                              "value": round(float(lh), 1)}
+            ls = style.get("letterSpacing")
+            if isinstance(ls, dict):
+                if ls.get("unit") == "PERCENT" and ls.get("value") not in (None, 0):
+                    out["props"]["letterSpacing"] = {
+                        "unit": "PERCENT",
+                        "value": round(float(ls["value"]), 2)}
+                elif isinstance(ls.get("value"), (int, float)) and ls["value"] != 0:
+                    out["props"]["letterSpacing"] = {
+                        "unit": ls.get("unit") or "PIXELS",
+                        "value": round(float(ls["value"]), 2)}
+            elif isinstance(ls, (int, float)) and ls != 0:
+                out["props"]["letterSpacing"] = {"unit": "PIXELS",
+                                                 "value": round(float(ls), 2)}
             color = _solid_hex(node.get("fills"))
             if color:
                 out["style"]["color"] = self._token_or_value(color)
             return out
 
-        if ntype not in ("FRAME", "INSTANCE", "GROUP", "RECTANGLE", "COMPONENT"):
+        if ntype not in ("FRAME", "INSTANCE", "GROUP", "RECTANGLE", "COMPONENT",
+                         "ELLIPSE"):
             return None
 
         # tipo: match catalogo o fallback strutturale
@@ -258,11 +389,44 @@ class FigmaImporter:
             out["layout"]["sizing"] = {"w": "fill", "h": "fill"}
 
         # colore di sfondo / superficie (gradienti -> media, dichiarata in meta)
-        bg, visual_bg = _fill_hex(node.get("fills"))
-        if bg and "container" in traits or (bg and top_level):
+        # surface oltre a container come nel plugin: lo Switch (track blu)
+        # e' una superficie pur senza essere contenitore.
+        bg, visual_bg, bg_opacity = _fill_hex(node.get("fills"))
+        if bg and ("container" in traits or "surface" in traits) or (bg and top_level):
             out["style"]["background"] = self._token_or_value(bg)
+            if bg_opacity < 1:
+                out["style"]["backgroundOpacity"] = round(bg_opacity, 3)
         if visual_bg:
             out["meta"]["visual_bg"] = visual_bg
+        glass = _backdrop_blur(node.get("effects"))
+        if glass is not None:
+            out["style"]["backdropBlur"] = glass
+        # Array completo (vetro qualunque tipo + ombre); il singolo sopra
+        # resta per i JSON gia' esportati (retrocompatibilita').
+        effects = _effect_info(node.get("effects"), self._token_or_value)
+        if effects:
+            out["style"]["effects"] = effects
+
+        # fedelta' visiva (punto 2, parita' col plugin): angoli, bordi,
+        # opacita', rotazione, forma ellisse. Mai inventare: solo campi
+        # presenti col tipo giusto, altrimenti si salta in silenzio.
+        corner = node.get("cornerRadius")
+        if isinstance(corner, (int, float)):
+            out["style"]["radius"] = round(float(corner), 2)
+        smoothing = node.get("cornerSmoothing")
+        if isinstance(smoothing, (int, float)) and smoothing > 0:
+            out["style"]["cornerSmoothing"] = round(float(smoothing), 2)
+        opacity = node.get("opacity")
+        if isinstance(opacity, (int, float)) and opacity < 1:
+            out["style"]["opacity"] = round(float(opacity), 3)
+        rotation = node.get("rotation")
+        if isinstance(rotation, (int, float)) and rotation != 0:
+            out["layout"]["rotation"] = round(float(rotation), 2)
+        border = self._stroke_info(node)
+        if border:
+            out["style"]["border"] = border
+        if ntype == "ELLIPSE":
+            out["meta"]["shape"] = "ellipse"
 
         # touch target: dimensioni REALI dal canvas
         if "interactive" in traits and bounds:
@@ -296,8 +460,9 @@ class FigmaImporter:
 
         children = [c for c in (self.convert_node(ch) for ch in node.get("children", []) or [])
                     if c is not None]
-        # i componenti mappati (Button ecc.) non esportano i figli: sono primitivi
-        if children and dc_type in ("Screen", "Stack", "Card", "List"):
+        # i componenti mappati (Button ecc.) non esportano i figli: sono primitivi,
+        # TRANNE lo Switch (track+levetta sono la sua verita' visiva e lo stato)
+        if children and dc_type in ("Screen", "Stack", "Card", "List", "Switch"):
             out["children"] = children
         return out
 

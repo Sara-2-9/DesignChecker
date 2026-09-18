@@ -179,10 +179,11 @@ class TestEccezioniEGradienti(unittest.TestCase):
         fills = [{"type": "GRADIENT_LINEAR", "visible": True, "gradientStops": [
             {"color": {"r": 1, "g": 1, "b": 1, "a": 1}},
             {"color": {"r": 0, "g": 0, "b": 0, "a": 1}}]}]
-        hex_value, visual = _fill_hex(fills)
+        hex_value, visual, opacity = _fill_hex(fills)
         self.assertEqual(hex_value, "#808080")
         self.assertEqual(visual, "gradient")
-        img, visual_img = _fill_hex([{"type": "IMAGE", "visible": True}])
+        self.assertEqual(opacity, 1)
+        img, visual_img, _ = _fill_hex([{"type": "IMAGE", "visible": True}])
         self.assertIsNone(img)
         self.assertEqual(visual_img, "image")
 

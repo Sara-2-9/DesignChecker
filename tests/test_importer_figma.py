@@ -165,5 +165,149 @@ class TestDedupId(unittest.TestCase):
         self.assertIn("bg-2", ids)
 
 
+class TestFedeltaVisiva(unittest.TestCase):
+    """Punti 1-2: angoli, bordi, opacita', rotazione, ellissi (round-trip
+    Settings-Frame: cerchi diventati quadrati, toggle sparito, bordi persi)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        cls.catalog = load_catalog(ROOT / "components.catalog.yaml")
+        cls.rules = load_rules(ROOT / "rules")
+        cls.importer = FigmaImporter(cls.tokens, cls.catalog)
+
+    def test_raggio_e_bordo_e_opacita_e_rotazione(self):
+        node = {"type": "RECTANGLE", "name": "Card",
+                "fills": [{"type": "SOLID", "visible": True,
+                           "color": {"r": 0.11, "g": 0.11, "b": 0.12}}],
+                "strokes": [{"type": "SOLID", "visible": True,
+                             "color": {"r": 1, "g": 1, "b": 1}}],
+                "strokeWeight": 1, "strokeAlign": "INSIDE",
+                "cornerRadius": 16, "opacity": 0.5, "rotation": 90,
+                "children": []}
+        out = self.importer.convert_node(node)
+        self.assertEqual(out["style"]["radius"], 16)
+        self.assertEqual(out["style"]["border"]["weight"], 1)
+        self.assertEqual(out["style"]["border"]["align"], "INSIDE")
+        self.assertEqual(out["style"]["opacity"], 0.5)
+        self.assertEqual(out["layout"]["rotation"], 90)
+
+    def test_ellisse_non_scartata(self):
+        node = {"type": "ELLIPSE", "name": "Thumb",
+                "fills": [{"type": "SOLID", "visible": True,
+                           "color": {"r": 1, "g": 1, "b": 1}}],
+                "children": []}
+        out = self.importer.convert_node(node)
+        self.assertIsNotNone(out)
+        self.assertEqual(out["meta"]["shape"], "ellipse")
+
+    def test_fill_traslucido_e_vetro(self):
+        """Back in vetro: #D9D9D9 al 20% + BACKGROUND_BLUR (bug Settings)."""
+        node = {"type": "RECTANGLE", "name": "Glass",
+                "fills": [{"type": "SOLID", "visible": True, "opacity": 0.2,
+                           "color": {"r": 0.85, "g": 0.85, "b": 0.85}}],
+                "effects": [{"type": "BACKGROUND_BLUR", "visible": True,
+                             "radius": 12}],
+                "children": []}
+        out = self.importer.convert_node(node)
+        self.assertEqual(out["style"]["backgroundOpacity"], 0.2)
+        self.assertEqual(out["style"]["backdropBlur"], 12)
+
+    def test_switch_tiene_i_figli(self):
+        """'Toggle - Switch': track+levetta sono la verita' visiva e lo stato."""
+        node = {"type": "GROUP", "name": "Toggle - Switch", "children": [
+            {"type": "RECTANGLE", "name": "Track",
+             "fills": [{"type": "SOLID", "visible": True,
+                        "color": {"r": 0, "g": 0.53, "b": 1}}],
+             "children": []},
+            {"type": "ELLIPSE", "name": "Thumb",
+             "fills": [{"type": "SOLID", "visible": True,
+                        "color": {"r": 1, "g": 1, "b": 1}}],
+             "children": []},
+        ]}
+        out = self.importer.convert_node(node)
+        self.assertEqual(out["type"], "Switch")
+        self.assertEqual(len(out.get("children", [])), 2)
+        self.assertEqual(out["children"][1]["meta"]["shape"], "ellipse")
+
+    def test_switch_registra_il_suo_sfondo(self):
+        """Il track blu e' il fill del nodo Switch: senza trait surface
+        veniva scartato e il toggle restava invisibile (bug Settings)."""
+        node = {"type": "INSTANCE", "name": "Toggle - Switch",
+                "fills": [{"type": "SOLID", "visible": True,
+                           "color": {"r": 0.2, "g": 0.6, "b": 1}}],
+                "children": []}
+        out = self.importer.convert_node(node)
+        self.assertEqual(out["type"], "Switch")
+        self.assertIn("background", out.get("style", {}))
+
+    def test_testo_metriche_reali(self):
+        node = {"type": "TEXT", "name": "Title", "characters": "Ciao",
+                "style": {"fontSize": 17, "fontFamily": "SF Pro",
+                          "fontPostScriptName": "SFProText-Semibold",
+                          "textAlignHorizontal": "CENTER",
+                          "lineHeightPx": 22, "letterSpacing": 0.5},
+                "fills": []}
+        out = self.importer.convert_node(node)
+        self.assertEqual(out["props"]["fontSize"], 17)
+        self.assertEqual(out["props"]["fontFamily"], "SFProText")
+        self.assertEqual(out["props"]["fontStyle"], "Semibold")
+        self.assertEqual(out["props"]["align"], "CENTER")
+        self.assertEqual(out["props"]["lineHeight"], {"unit": "PIXELS", "value": 22})
+        self.assertEqual(out["props"]["letterSpacing"], {"unit": "PIXELS", "value": 0.5})
+
+    def test_effetti_ombra_e_vetro(self):
+        node = {"type": "RECTANGLE", "name": "Card",
+                "fills": [],
+                "effects": [
+                    {"type": "DROP_SHADOW", "visible": True,
+                     "color": {"r": 0, "g": 0, "b": 0, "a": 0.3},
+                     "offset": {"x": 0, "y": 4}, "radius": 12, "spread": 0},
+                    {"type": "BACKGROUND_BLUR", "visible": True, "radius": 20}],
+                "children": []}
+        out = self.importer.convert_node(node)
+        effs = out["style"]["effects"]
+        self.assertEqual(len(effs), 2)
+        self.assertEqual(effs[0]["type"], "DROP_SHADOW")
+        self.assertEqual(effs[0]["offset"], {"x": 0, "y": 4})
+        self.assertEqual(out["style"]["backdropBlur"], 20)
+
+    def test_campi_fedelta_non_creano_errori(self):
+        """Contratto: i nuovi campi non devono mai diventare finding."""
+        scr = {"schema_version": "0.1.0",
+               "meta": {"id": "t", "platform": "ios", "theme": "dark"},
+               "root": {"id": "r", "type": "Screen",
+                        "layout": {"safe_area": True},
+                        "style": {"background": "{color.surface}"},
+                        "children": [
+                            {"id": "card", "type": "Stack",
+                             "layout": {"rotation": 0},
+                             "style": {"background": "{color.surface-raised}",
+                                       "radius": 16,
+                                       "border": {"color": "{color.neutral.700}",
+                                                  "weight": 1},
+                                       "backgroundOpacity": 0.2,
+                                       "backdropBlur": 12,
+                                       "effects": [{"type": "BACKGROUND_BLUR",
+                                                    "radius": 12}],
+                                       "opacity": 0.9},
+                             "children": [
+                                 {"id": "t1", "type": "Text",
+                                  "props": {"content": "Ciao", "variant": "body",
+                                            "fontSize": 17,
+                                            "fontFamily": "SF Pro",
+                                            "fontStyle": "Semibold",
+                                            "align": "CENTER",
+                                            "lineHeight": {"unit": "PIXELS",
+                                                           "value": 22}},
+                                  "layout": {"sizing": {"w": "hug", "h": "hug"}},
+                                  "style": {"color": "{color.text-primary}"}}]}]}}
+        findings = validate(scr, self.rules, self.tokens, self.catalog,
+                            platform="ios", theme="dark")
+        bad = [f for f in findings
+               if f.severity == "error" and f.node_id == "card"]
+        self.assertEqual(bad, [])
+
+
 if __name__ == "__main__":
     unittest.main()

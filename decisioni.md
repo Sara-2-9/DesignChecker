@@ -437,3 +437,70 @@ Motivazione: il determinismo dove è forte (sicurezza), il giudizio dove
 serve gusto (qualità) — dal padre che ha visto il PNG, contato in modo
 deterministico e testabile. L'AI non diventa validatore (D40 confermata):
 la copertura blind è calcolata qui, non chiesta al modello.
+
+## D45 — Fedelta' del round-trip Figma↔JSON: angoli, bordi, opacita', rotazione, ellissi, token tematizzati (2026-09)
+
+Sintomo reale (round-trip Settings-Frame, export->render senza modifiche):
+card senza sfondo, cerchio back diventato quadrato chiaro, toggle sparito,
+bordi/anelli persi. Diagnosi su JSON+codice+PNG esportate:
+1. il render non risolveva i token multi-tema ({light,dark} passati come
+   oggetti a hexToFigmaColor -> fill vuoto -> superfici trasparenti);
+2. l'export non registrava mai cornerRadius, strokes, opacity, rotation e
+   scartava le ELLIPSE (levetta del toggle); i componenti mappati perdevano
+   comunque i figli per disegno.
+Decisione (punti 1-2):
+1. render: TOKEN_FLAT tematizzati risolti col tema dello screen
+   (meta.theme, fallback light come TokenStore).
+2. export (plugin + REST, stessa forma): style.radius (numero grezzo),
+   style.cornerSmoothing, style.border {color, weight?, align?},
+   style.opacity (<1), layout.rotation (!=0), meta.shape='ellipse' per le
+   ellissi (render con createEllipse); meta.corner_mixed se gli angoli
+   differiscono (schema v0.1 non li modella). Rotazione/opacita' per OGNI
+   tipo di nodo via withGeo. Mai inventare: solo campi presenti col tipo
+   giusto. I nuovi campi non creano finding (numeri/oggetti, non hex):
+   contratto bloccato da test. Vettori in SVG, boundVariables, effects e
+   semantica auto-layout restano P1 (schema v0.2).
+
+## D46 — Vetro, opacita' fill e figli dello Switch nel round-trip (2026-09)
+
+Sintomo reale (round-trip Settings-Frame): back ridisegnato grigio solido
+(era #D9D9D9 al 20% + vetro), toggle sparito del tutto.
+Diagnosi: export leggeva solo il primo fill opaco e ignorava opacita'
+per-fill ed effetti; i componenti mappati perdevano i figli per disegno
+(fatale per lo Switch, dove track+levetta sono tutto); la REST non matchava
+i suffissi di nome mentre il plugin si.
+Decisione: fillHex riporta anche opacita' del fill
+(style.backgroundOpacity) e export registra style.backdropBlur dal
+BACKGROUND_BLUR; il render applica entrambi. Switch tiene i figli in
+entrambi gli importer; match per suffisso anche nella REST (parita' col
+plugin). Solo BACKGROUND_BLUR per ora; ombre e figli dei Button restano P1.
+
+## D47 — Rotazione dopo il posizionamento + trait surface allo Switch (2026-09)
+
+Sintomo reale (round-trip Settings-Frame, secondo giro): chevron spariti e
+track blu del toggle mancante (levetta bianca presente).
+Diagnosi: 1) i gruppi chevron hanno rotation:-180 registrata correttamente,
+ma il render la applicava a frame ancora in (0,0): Figma rilegge x/y come
+traslazione del frame ruotato e i nodi finivano spostati di (-w,-h),
+clippati dal root. (Spiega anche il "flip" del primo giro: senza supporto
+rotazione si vedeva l'icona non ruotata "<".) 2) il fill blu e' proprio del
+nodo Switch, che non aveva trait surface/container: entrambi gli importer
+lo scartavano.
+Decisione: rotazione applicata DOPO x/y (ruota sul posto attorno al centro;
+perfetto a 180 gradi, approssimato ad altri angoli). Trait surface allo
+Switch in catalogo + condizione surface anche nella REST (il plugin
+l'aveva gia'). Neutro per il validatore: nessuna regola chiave su surface.
+
+## D48 — Metriche tipografiche vere ed effetti generici nel round-trip (2026-09)
+
+Sintomo reale: testi quasi giusti ma mai uguali (taglie a bucket, pesi
+appiattiti, niente allineamenti) e vetro catturato solo se BACKGROUND_BLUR.
+Decisione: export testi con fontSize esatta, fontFamily/fontStyle (dal
+PostScript nella REST, da fontName nel plugin), align/valign non-default,
+lineHeight, letterSpacing, textCase, textDecoration; flag meta.mixed_style
+per i run multi-stile (non modellati, dichiarati). Render con font
+originale + fallback Inter. Export effetti in style.effects[] (ombre,
+layer blur, vetro, qualunque combinazione; colori via token, resto grezzo);
+il singolo backdropBlur resta per i vecchi JSON. Validatore e codegen
+leggono solo variant: zero nuovi finding (contratto da test). Fuori:
+segmenti multi-stile, font custom nel codegen, semantica auto-layout.

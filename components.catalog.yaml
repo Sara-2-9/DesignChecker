@@ -59,7 +59,7 @@ components:
 
   - type: Switch
     maps_to: { rn: "Switch", figma: "COMPONENT" }
-    traits: [interactive, touch_target]
+    traits: [interactive, touch_target, surface]
     defaults: { min_height: 44 }
     rules_apply: [touch-target, a11y-label]
 

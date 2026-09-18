@@ -10,6 +10,7 @@
 let CATALOG = null;       // {Screen: {traits: [...]}, ...}
 let HEX_TO_TOKEN = {};    // "#RRGGBB" -> "color.brand.primary"
 let TOKEN_FLAT = {};      // path -> valore risolto (per il render)
+let RENDER_THEME = 'light'; // tema usato per risolvere i token multi-tema nel render
 let USED_IDS = {};        // dedup id per export: 'bg' x2 -> 'bg', 'bg-2'
 
 function uniqueId(base) {
@@ -70,13 +71,16 @@ function solidHex(fills) {
   return null;
 }
 
-// Sfondo nodo: [hex, visualBg]. Gradiente -> media pesata degli stop
+// Sfondo nodo: [hex, visualBg, opacity]. Gradiente -> media pesata degli stop
 // (approssimazione dichiarata in meta.visual_bg, D30); immagine -> [null, 'image'].
+// opacity e' quella del fill scelto (1 se opaco): senza, un #D9D9D9 al 20% con
+// vetro veniva registrato come grigio pieno e il render lo ridisegnava solido.
 function fillHex(fills) {
-  if (!Array.isArray(fills)) return [null, null];
+  if (!Array.isArray(fills)) return [null, null, 1];
   for (const fill of fills) {
     if (fill.visible === false) continue;
-    if (fill.type === 'SOLID') return [rgbHex(fill.color), null];
+    const op = (fill.opacity == null ? 1 : fill.opacity);
+    if (fill.type === 'SOLID') return [rgbHex(fill.color), null, op];
     if (fill.type && fill.type.startsWith('GRADIENT')) {
       const stops = fill.gradientStops || [];
       if (stops.length) {
@@ -86,12 +90,12 @@ function fillHex(fills) {
           const a = st.color.a == null ? 1 : st.color.a;
           avg.r += st.color.r * a; avg.g += st.color.g * a; avg.b += st.color.b * a;
         }
-        return [rgbHex({ r: avg.r / tot, g: avg.g / tot, b: avg.b / tot }), 'gradient'];
+        return [rgbHex({ r: avg.r / tot, g: avg.g / tot, b: avg.b / tot }), 'gradient', op];
       }
     }
-    if (fill.type === 'IMAGE') return [null, 'image'];
+    if (fill.type === 'IMAGE') return [null, 'image', op];
   }
-  return [null, null];
+  return [null, null, 1];
 }
 
 function tokenOrHex(hex) {
@@ -228,6 +232,77 @@ let pendingAssets = [];  // [{node, ref}] — nodi Image/Icon da esportare come 
 // Geometria fedele (D32): layout.frame di ogni nodo e' relativo al GENITORE
 // (non al root) — in render i figli sono posizionati dentro il frame parent.
 
+function backdropBlur(node) {
+  // Scorciatoia per il vetro comune (BACKGROUND_BLUR): raggio o null.
+  // Per l'array completo (ombre comprese) vedi effectInfo sotto.
+  const effs = node.effects;
+  if (!Array.isArray(effs)) return null;
+  for (const e of effs) {
+    if (!e || e.visible === false || e.type !== 'BACKGROUND_BLUR') continue;
+    if (typeof e.radius === 'number') return Math.round(e.radius * 10) / 10;
+    return 0;
+  }
+  return null;
+}
+
+function effectInfo(node) {
+  // Tutti gli effetti visibili in forma seriale: ombre, blur di livello e vetro.
+  // Colori via tokenOrHex, resto numeri grezzi. Mai inventare: tipi ignoti saltati.
+  const effs = node.effects;
+  if (!Array.isArray(effs)) return null;
+  const out = [];
+  for (const e of effs) {
+    if (!e || e.visible === false) continue;
+    const t = e.type;
+    const isShadow = t === 'DROP_SHADOW' || t === 'INNER_SHADOW';
+    const isBlur = t === 'LAYER_BLUR' || t === 'BACKGROUND_BLUR';
+    if (!isShadow && !isBlur) continue;
+    const item = { type: t };
+    if (typeof e.radius === 'number') item.radius = Math.round(e.radius * 10) / 10;
+    if (isShadow) {
+      if (e.offset && (e.offset.x || e.offset.y)) {
+        item.offset = { x: Math.round((e.offset.x || 0) * 10) / 10,
+                        y: Math.round((e.offset.y || 0) * 10) / 10 };
+      }
+      if (typeof e.spread === 'number' && e.spread !== 0) {
+        item.spread = Math.round(e.spread * 10) / 10;
+      }
+      if (e.color) {
+        const hex = rgbHex({ r: e.color.r, g: e.color.g, b: e.color.b });
+        if (hex) {
+          item.color = tokenOrHex(hex);
+          const a = (e.color.a == null ? 1 : e.color.a);
+          if (a < 1) item.opacity = Math.round(a * 1000) / 1000;
+        }
+      }
+      if (e.blendMode && e.blendMode !== 'NORMAL') item.blendMode = e.blendMode;
+    }
+    out.push(item);
+  }
+  return out.length ? out : null;
+}
+
+function strokeInfo(node) {
+  // Primo bordo solido visibile: {color, weight?, align?} o null.
+  // Il colore passa per tokenOrHex come gli sfondi (token restano token,
+  // hex restano hex e il validatore li segnala). Opacita' per-fill e pesi
+  // misti non modellati: limite noto, mai inventare valori.
+  const sts = node.strokes;
+  if (!Array.isArray(sts)) return null;
+  for (const s of sts) {
+    if (!s || s.visible === false || s.type !== 'SOLID') continue;
+    const hex = s.color ? rgbHex(s.color) : null;
+    if (!hex) continue;
+    const out = { color: tokenOrHex(hex) };
+    if (typeof node.strokeWeight === 'number') {
+      out.weight = Math.round(node.strokeWeight * 100) / 100;
+    }
+    if (node.strokeAlign && node.strokeAlign !== 'CENTER') out.align = node.strokeAlign;
+    return out;
+  }
+  return null;
+}
+
 function withGeo(out, node, bounds, parentBox) {
   // geometria reale relativa al genitore + id Figma (per clonare immagini/
   // icone dal nodo sorgente al momento del render, se esiste ancora nel file)
@@ -239,6 +314,16 @@ function withGeo(out, node, bounds, parentBox) {
       w: Math.round(bounds.width),
       h: Math.round(bounds.height),
     };
+  }
+  // rotazione e opacita' valgono per OGNI tipo di nodo (anche testi e icone):
+  // senza, il JSON descrive un oggetto diverso da quello disegnato.
+  if (typeof node.rotation === 'number' && node.rotation !== 0) {
+    out.layout = out.layout || {};
+    out.layout.rotation = Math.round(node.rotation * 100) / 100;
+  }
+  if (typeof node.opacity === 'number' && node.opacity < 1) {
+    out.style = out.style || {};
+    out.style.opacity = Math.round(node.opacity * 1000) / 1000;
   }
   out.meta = out.meta || {};
   out.meta.figma_node_id = node.id;
@@ -264,19 +349,55 @@ function convertNode(node, topLevel, parentBox) {
   }
 
   if (node.type === 'TEXT') {
+    // Metriche tipografiche vere (non solo variant): misura esatta, famiglia,
+    // peso, allineamenti, interlinea, tracking, maiuscole, decorazioni.
+    // Solo non-default oltre l'identita' (fontSize/famiglia/peso sempre):
+    // i default Figma (LEFT/TOP/ORIGINAL/NONE) si omettono per non gonfiare il JSON.
+    const size = Number(node.fontSize) || 16;
     const out = {
       id: uniqueId(kebab(name) || 'text'), type: 'Text',
-      props: { content: node.characters || '', variant: textVariant(Number(node.fontSize) || 16) },
+      props: { content: node.characters || '', variant: textVariant(size),
+               fontSize: Math.round(size * 10) / 10 },
       layout: { sizing: { w: 'hug', h: 'hug' } },
       style: {},
       meta: { source: 'figma-plugin', confidence: 1.0 },
     };
+    const fn = node.fontName;
+    if (fn && typeof fn.family === 'string') {
+      out.props.fontFamily = fn.family.slice(0, 60);
+      if (typeof fn.style === 'string') out.props.fontStyle = fn.style.slice(0, 40);
+    } else if (fn != null) {
+      out.meta.mixed_style = true; // run multi-stile: pesi/famiglie non modellati
+    }
+    if (typeof node.textAlignHorizontal === 'string' && node.textAlignHorizontal !== 'LEFT') {
+      out.props.align = node.textAlignHorizontal;
+    }
+    if (typeof node.textAlignVertical === 'string' && node.textAlignVertical !== 'TOP') {
+      out.props.valign = node.textAlignVertical;
+    }
+    const lh = node.lineHeight;
+    if (lh && typeof lh === 'object' && lh.unit && lh.unit !== 'AUTO') {
+      out.props.lineHeight = lh.value != null
+        ? { unit: lh.unit, value: Math.round(lh.value * 100) / 100 }
+        : { unit: lh.unit };
+    }
+    const ls = node.letterSpacing;
+    if (ls && typeof ls === 'object' && typeof ls.value === 'number' && ls.value !== 0) {
+      out.props.letterSpacing = { unit: ls.unit || 'PIXELS',
+                                  value: Math.round(ls.value * 100) / 100 };
+    }
+    if (typeof node.textCase === 'string' && node.textCase !== 'ORIGINAL') {
+      out.props.textCase = node.textCase;
+    }
+    if (typeof node.textDecoration === 'string' && node.textDecoration !== 'NONE') {
+      out.props.textDecoration = node.textDecoration;
+    }
     const color = solidHex(node.fills);
     if (color) out.style.color = tokenOrHex(color);
     return withGeo(out, node, bounds, parentBox);
   }
 
-  if (!['FRAME', 'INSTANCE', 'GROUP', 'RECTANGLE', 'COMPONENT', 'COMPONENT_SET'].includes(node.type)) {
+  if (!['FRAME', 'INSTANCE', 'GROUP', 'RECTANGLE', 'COMPONENT', 'COMPONENT_SET', 'ELLIPSE'].includes(node.type)) {
     return null;
   }
 
@@ -318,11 +439,35 @@ function convertNode(node, topLevel, parentBox) {
     out.layout.sizing = { w: 'fill', h: 'fill' };
   }
 
-  const [bg, visualBg] = fillHex(node.fills);
+  const [bg, visualBg, bgOpacity] = fillHex(node.fills);
   if (bg && (traits.includes('container') || traits.includes('surface') || topLevel)) {
     out.style.background = tokenOrHex(bg);
+    if (bgOpacity != null && bgOpacity < 1) {
+      out.style.backgroundOpacity = Math.round(bgOpacity * 1000) / 1000;
+    }
   }
   if (visualBg) out.meta.visual_bg = visualBg;
+  const glass = backdropBlur(node);
+  if (glass != null) out.style.backdropBlur = glass;
+  // Array completo degli effetti (vetro qualunque tipo + ombre): il singolo
+  // backdropBlur sopra resta per i JSON gia' esportati (retrocompatibilita').
+  const effects = effectInfo(node);
+  if (effects) out.style.effects = effects;
+
+  // fedelta' visiva (punto 2): angoli, smoothing, bordi, forma ellisse.
+  // Prima si esportava solo il primo fill: cerchi diventavano quadrati,
+  // anelli/bordi sparivano, le ellissi venivano scartate del tutto.
+  if (typeof node.cornerRadius === 'number') {
+    out.style.radius = Math.round(node.cornerRadius * 100) / 100;
+  } else if (node.cornerRadius !== undefined) {
+    out.meta.corner_mixed = true; // angoli diversi: lo schema v0.1 non li modella
+  }
+  if (typeof node.cornerSmoothing === 'number' && node.cornerSmoothing > 0) {
+    out.style.cornerSmoothing = Math.round(node.cornerSmoothing * 100) / 100;
+  }
+  const border = strokeInfo(node);
+  if (border) out.style.border = border;
+  if (node.type === 'ELLIPSE') out.meta.shape = 'ellipse';
 
   // touch target: misure REALI dal canvas
   if (traits.includes('interactive') && bounds.width) {
@@ -355,7 +500,10 @@ function convertNode(node, topLevel, parentBox) {
 
   if ('children' in node) {
     const children = node.children.map((c) => convertNode(c, false, bounds)).filter(Boolean);
-    if (children.length && ['Screen', 'Stack', 'Card', 'List'].includes(dcType)) {
+    // I componenti mappati non esportano i figli (sono primitivi), TRANNE lo
+    // Switch: track+levetta sono la sua verita' visiva (es. "Toggle - Switch":
+    // senza figli l'interruttore sparisce dal render e perde lo stato ON).
+    if (children.length && ['Screen', 'Stack', 'Card', 'List', 'Switch'].includes(dcType)) {
       out.children = children;
     }
   }
@@ -468,11 +616,16 @@ async function annotate(findings) {
 
 // ---------------------------------------------------------------- render JSON -> canvas
 function tokenValue(ref) {
-  // "{color.brand.primary}" -> valore; altrimenti ritorna il valore cosi' com'e'
+  // "{color.brand.primary}" -> valore; altrimenti ritorna il valore cosi' com'e'.
+  // I token multi-tema arrivano come {light, dark}: si risolve con il tema
+  // dello screen in render (meta.theme). Prima si restituiva l'oggetto cosi'
+  // com'era e ogni fill tematizzato diventava trasparente (bug card invisibili).
   if (typeof ref === 'string' && ref.startsWith('{') && ref.endsWith('}')) {
     const path = ref.slice(1, -1);
-    if (path in TOKEN_FLAT) return TOKEN_FLAT[path];
-    return null;
+    if (!(path in TOKEN_FLAT)) return null;
+    const v = TOKEN_FLAT[path];
+    if (v && typeof v === 'object') return v[RENDER_THEME] || v.light || v.dark || null;
+    return v;
   }
   return ref;
 }
@@ -495,6 +648,74 @@ function fontSizeFor(variant) {
   return num(tok, VARIANT_SIZES[variant] || 14);
 }
 
+async function textFont(family, style, variant) {
+  // Prova il font originale del design (es. SF Pro), con fallback a Inter:
+  // loadFontAsync fallisce se la famiglia/peso non e' disponibile.
+  const want = { family: family || 'Inter',
+                 style: style || ((variant === 'title' || variant === 'heading') ? 'Bold' : 'Regular') };
+  try { await figma.loadFontAsync(want); return want; } catch (e) { /* fallback sotto */ }
+  const fb = { family: 'Inter',
+               style: (variant === 'title' || variant === 'heading') ? 'Bold' : 'Regular' };
+  try { await figma.loadFontAsync(fb); } catch (e2) { /* Inter precaricato in renderScreen */ }
+  return fb;
+}
+
+function mapEffect(ef) {
+  // JSON -> effetto Figma. Solo campi per-tipo (lo spread su un blur
+  // farebbe fallire l'assegnazione): lo strict qui protegge il render.
+  if (!ef || typeof ef !== 'object') return null;
+  const t = ef.type;
+  const isShadow = t === 'DROP_SHADOW' || t === 'INNER_SHADOW';
+  const isBlur = t === 'LAYER_BLUR' || t === 'BACKGROUND_BLUR';
+  if (!isShadow && !isBlur) return null;
+  const out = { type: t, visible: true };
+  if (ef.radius != null) out.radius = num(ef.radius, 0);
+  if (isShadow) {
+    out.offset = { x: num(ef.offset && ef.offset.x, 0), y: num(ef.offset && ef.offset.y, 0) };
+    if (ef.spread != null) out.spread = num(ef.spread, 0);
+    if (ef.color) {
+      const c = hexToFigmaColor(tokenValue(ef.color));
+      if (!c) return null;
+      out.color = { r: c.r, g: c.g, b: c.b, a: ef.opacity != null ? ef.opacity : 1 };
+    } else {
+      out.color = { r: 0, g: 0, b: 0, a: 0.25 };
+    }
+    if (ef.blendMode) out.blendMode = ef.blendMode;
+  }
+  return out;
+}
+
+function applyVisualStyle(frame, node) {
+  // Applica gli stili di fedelta' registrati in export (punto 2):
+  // bordi, smoothing, opacita', rotazione. Tutto in try/catch per nodo:
+  // un campo non applicabile non deve mai bloccare il render.
+  const style = node.style || {};
+  const layout = node.layout || {};
+  try {
+    const b = style.border;
+    if (b && typeof b === 'object') {
+      const bc = hexToFigmaColor(tokenValue(b.color));
+      if (bc) {
+        frame.strokes = [{ type: 'SOLID', color: bc }];
+        if (b.weight != null) frame.strokeWeight = num(b.weight, 1);
+        if (b.align) frame.strokeAlign = b.align;
+      }
+    }
+    if (style.cornerSmoothing != null) frame.cornerSmoothing = num(style.cornerSmoothing, 0);
+    if (style.opacity != null) frame.opacity = Math.max(0, Math.min(1, num(style.opacity, 1)));
+    if (layout.rotation != null) frame.rotation = num(layout.rotation, 0);
+    // Effetti: l'array completo vince; il singolo backdropBlur resta per i
+    // vecchi JSON (e si somma solo se l'array non ha gia' un vetro).
+    try {
+      const mapped = (Array.isArray(style.effects) ? style.effects : []).map(mapEffect).filter(Boolean);
+      const legacy = (style.backdropBlur != null && !mapped.some((m) => m.type === 'BACKGROUND_BLUR'))
+        ? [{ type: 'BACKGROUND_BLUR', radius: num(style.backdropBlur, 8), visible: true }]
+        : [];
+      if (mapped.length || legacy.length) frame.effects = [...mapped, ...legacy];
+    } catch (e2) { /* effetti non supportati: ignora */ }
+  } catch (e) { /* singolo stile non applicabile: ignora */ }
+}
+
 function newFrame(dcType, id) {
   const frame = figma.createFrame();
   frame.name = dcType + ': ' + id;
@@ -502,9 +723,23 @@ function newFrame(dcType, id) {
   return frame;
 }
 
-function applyContainerStyle(frame, node, isRoot) {
+function applyContainerStyle(frame, node, isRoot, isEllipse) {
   const layout = node.layout || {};
   const style = node.style || {};
+  // Le ellissi non hanno auto-layout: solo riempimento e stili visivi.
+  if (isEllipse) {
+    const bg = hexToFigmaColor(tokenValue(style.background));
+    if (bg) {
+      const paint = { type: 'SOLID', color: bg };
+      if (style.backgroundOpacity != null) {
+        paint.opacity = Math.max(0, Math.min(1, num(style.backgroundOpacity, 1)));
+      }
+      frame.fills = [paint];
+    }
+    applyVisualStyle(frame, node);
+    try { frame.setPluginData('dc_id', node.id || ''); } catch (e) { /* read-only */ }
+    return;
+  }
   const dir = layout.direction === 'row' ? 'HORIZONTAL' : 'VERTICAL';
   frame.layoutMode = dir;
   frame.primaryAxisSizingMode = 'AUTO';
@@ -516,9 +751,18 @@ function applyContainerStyle(frame, node, isRoot) {
   frame.paddingLeft = frame.paddingRight = ph;
   frame.paddingTop = frame.paddingBottom = pv;
   const bg = hexToFigmaColor(tokenValue(style.background));
-  if (bg) frame.fills = [{ type: 'SOLID', color: bg }];
+  if (bg) {
+    const paint = { type: 'SOLID', color: bg };
+    if (style.backgroundOpacity != null) {
+      paint.opacity = Math.max(0, Math.min(1, num(style.backgroundOpacity, 1)));
+    }
+    frame.fills = [paint];
+  } else {
+    frame.fills = [];
+  }
   const radius = num(tokenValue(style.radius), 0);
   if (radius) frame.cornerRadius = radius;
+  applyVisualStyle(frame, node);
   if (isRoot) frame.resize(390, 844); // iPhone 14/15 reference
   frame.setPluginData('dc_id', node.id || '');
 }
@@ -673,8 +917,11 @@ async function renderNode(node, parent, isRoot) {
   }
 
   // contenitori: Screen / Stack / Card / List / AppHeader / EmptyState / ListRow / ...
-  const frame = newFrame(type, node.id);
-  applyContainerStyle(frame, node, isRoot);
+  // (piu' le ellissi: meta.shape === 'ellipse' -> createEllipse)
+  const isEllipse = node.meta && node.meta.shape === 'ellipse';
+  const frame = isEllipse ? figma.createEllipse() : newFrame(type, node.id);
+  if (isEllipse) frame.name = type + ': ' + (node.id || '');
+  applyContainerStyle(frame, node, isRoot, isEllipse);
   if (type === 'ListRow') {
     frame.layoutMode = 'HORIZONTAL';
     frame.counterAxisSizingMode = 'FIXED';
@@ -696,6 +943,7 @@ async function renderNode(node, parent, isRoot) {
   }
 
   for (const child of node.children || []) {
+    if (isEllipse) break; // le ellissi non contengono figli (né in Figma né qui)
     await renderNode(child, frame, false);
   }
 }
@@ -718,9 +966,17 @@ async function renderNodeFaithful(node, parent) {
 
   if (node.type === 'Text') {
     const t = figma.createText();
-    t.fontName = { family: 'Inter', style: props.variant === 'title' || props.variant === 'heading' ? 'Bold' : 'Regular' };
-    t.fontSize = fontSizeFor(props.variant);
+    t.fontName = await textFont(props.fontFamily, props.fontStyle, props.variant);
+    t.fontSize = num(props.fontSize, fontSizeFor(props.variant));
     t.characters = props.content || '';
+    try {
+      if (props.align) t.textAlignHorizontal = props.align;
+      if (props.valign) t.textAlignVertical = props.valign;
+      if (props.lineHeight) t.lineHeight = props.lineHeight;
+      if (props.letterSpacing) t.letterSpacing = props.letterSpacing;
+      if (props.textCase) t.textCase = props.textCase;
+      if (props.textDecoration) t.textDecoration = props.textDecoration;
+    } catch (e) { /* valore non valido per questo font: ignora */ }
     try { t.textAutoResize = 'WIDTH_AND_HEIGHT'; } catch (e) { /* versioni vecchie */ }
     const color = hexToFigmaColor(tokenValue(style.color));
     if (color) t.fills = [{ type: 'SOLID', color: color }];
@@ -733,6 +989,7 @@ async function renderNodeFaithful(node, parent) {
     try {
       if (f && t.width > f.w) { t.resize(Math.ceil(t.width), Math.max(t.height, 1)); }
     } catch (e) { /* ok */ }
+    applyVisualStyle(t, node); // DOPO il posizionamento (stesso motivo dei container)
     return;
   }
 
@@ -773,16 +1030,40 @@ async function renderNodeFaithful(node, parent) {
   // Contenitori: frame assoluto, niente auto-layout. Niente clipsContent:
   // nell'originale i contenuti possono legittimamente debordare dai gruppi;
   // il clip lo fa solo il root (in renderScreen).
-  const frame = newFrame(node.type, node.id);
-  frame.layoutMode = 'NONE';
+  // Le ellissi tornano ellissi (createEllipse): prima diventavano rettangoli.
+  const isEllipse = meta.shape === 'ellipse';
+  const frame = isEllipse ? figma.createEllipse() : newFrame(node.type, node.id);
+  if (isEllipse) {
+    frame.name = (node.type || 'Stack') + ': ' + (node.id || '');
+    try { frame.setPluginData('dc_id', node.id || ''); } catch (e) { /* read-only */ }
+  } else {
+    frame.layoutMode = 'NONE';
+  }
   const bg = hexToFigmaColor(tokenValue(style.background));
-  frame.fills = bg ? [{ type: 'SOLID', color: bg }] : [];
-  if (style.radius != null) frame.cornerRadius = num(tokenValue(style.radius), 0);
+  if (bg) {
+    // Opacita' del fill (es. #D9D9D9 al 20% del back in vetro): senza,
+    // il render ridisegnava il colore pieno e il cerchio usciva grigio solido.
+    const paint = { type: 'SOLID', color: bg };
+    if (style.backgroundOpacity != null) {
+      paint.opacity = Math.max(0, Math.min(1, num(style.backgroundOpacity, 1)));
+    }
+    frame.fills = [paint];
+  } else {
+    frame.fills = [];
+  }
+  if (!isEllipse && style.radius != null) frame.cornerRadius = num(tokenValue(style.radius), 0);
   if (f) frame.resize(Math.max(f.w, 1), Math.max(f.h, 1));
   parent.appendChild(frame);
   if (f) { frame.x = f.x; frame.y = f.y; }
-  for (const child of kids) {
-    await renderNodeFaithful(child, frame);
+  // La rotazione va applicata DOPO il posizionamento: ruota sul posto attorno
+  // al centro. Prima si impostava a frame ancora in (0,0) e Figma rileggeva
+  // x/y come traslazione del frame ruotato: i chevron a -180 finivano spostati
+  // di (-w,-h) e sparivano (clippati dal root).
+  applyVisualStyle(frame, node);
+  if (!isEllipse) {
+    for (const child of kids) {
+      await renderNodeFaithful(child, frame);
+    }
   }
 }
 
@@ -790,6 +1071,10 @@ async function renderScreen(screen) {
   await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
   await figma.loadFontAsync({ family: 'Inter', style: 'Medium' });
   await figma.loadFontAsync({ family: 'Inter', style: 'Bold' });
+
+  // Tema per la risoluzione dei token {light, dark} (punto 1):
+  // senza, i token tematizzati restano oggetti e i fill spariscono.
+  RENDER_THEME = (screen.meta && screen.meta.theme) || 'light';
 
   let frame;
   if (hasGeometry(screen)) {
