@@ -601,6 +601,83 @@ def apply_patch_tolerant(doc: dict, ops: list,
                 dropped.append({"op": op, "reason": msg})
     return out, applied, dropped
 
+BLIND_COVER_MIN = 2  # priorita' della diagnosi coperte per la qualita' "padre"
+
+
+def _blind_coverage(screen: dict, applied: list, blind) -> tuple[int, list, list]:
+    """Quante priorita' della diagnosi cieca toccano le ops applicate.
+
+    Il padre ha visto il PNG, il contatore no: la copertura delle sue
+    priorita' e' la base qualita' alternativa al conteggio (D44).
+    Match per sottoalbero: un fix su un discendente o antenato del nodo
+    cieco conta (es. cieco 'custom' coperto da fix su 'plus-button').
+    Ritorna (n_coperte, [nodi coperti], [nodi ciechi])."""
+    ids = [b.get("node") for b in (blind or [])
+           if isinstance(b, dict) and b.get("node")][:5]
+    ids = [i for i in ids if isinstance(i, str)]
+    if not ids or not applied:
+        return 0, [], ids
+    children_of: dict[str, list] = {}
+    parent_of: dict[str, str] = {}
+
+    def walk(n, parent):
+        if not isinstance(n, dict):
+            return
+        nid = n.get("id")
+        if nid:
+            children_of.setdefault(nid, [])
+            if isinstance(parent, dict) and parent.get("id"):
+                parent_of[nid] = parent["id"]
+                children_of.setdefault(parent["id"], []).append(nid)
+        for c in n.get("children", []) or []:
+            walk(c, n)
+    walk(screen.get("root", {}) or {}, None)
+
+    def descendants(nid: str) -> set:
+        out, stack = set(), [nid]
+        while stack:
+            cur = stack.pop()
+            if cur in out:
+                continue
+            out.add(cur)
+            stack.extend(children_of.get(cur, []))
+        return out
+
+    def ancestors(nid: str) -> set:
+        out = set()
+        cur = parent_of.get(nid)
+        while cur and cur not in out:
+            out.add(cur)
+            cur = parent_of.get(cur)
+        return out
+
+    path_to_id: dict[str, str] = {}
+    for nid, ps in _node_paths(screen).items():
+        for p in ps:
+            path_to_id[p] = nid
+
+    def op_node(op_path: str):
+        best = None
+        for p, nid in path_to_id.items():
+            if op_path == p or op_path.startswith(p + "/"):
+                if best is None or len(p) > len(best[0]):
+                    best = (p, nid)
+        return best[1] if best else None
+
+    covered = []
+    for b in ids:
+        related = descendants(b) | ancestors(b)
+        for op in applied:
+            if not isinstance(op, dict):
+                continue
+            nid = op_node(str(op.get("path", "")))
+            if nid is not None and (nid == b or nid in related
+                                    or b in descendants(nid)):
+                covered.append(b)
+                break
+    return len(covered), covered, ids
+
+
 def _culprit_ops(screen: dict, applied: list, before_keys: set,
                  validate_fn) -> tuple[list, list]:
     """Trova le ops che da sole introducono nuovi errori.
@@ -630,16 +707,24 @@ def _culprit_ops(screen: dict, applied: list, before_keys: set,
     return culprits, kept
 
 
-def gate_propose(screen: dict, ops: list, validate_fn) -> dict:
+def gate_propose(screen: dict, ops: list, validate_fn, blind=None) -> dict:
     """Applica ops (gia' normalizzate per node-id) e decide col validatore.
 
-    Accettata solo se:
-    - riduce gli errori di almeno MIN_FIXES senza aumentare i warning;
-    - non introduce NUOVI errori (coppie rule/node mai viste prima).
-    Il conteggio da solo premiava patch che fissano 4 hardcoded e ne
-    rompono 1 di contrasto (Pay-Frame: 23->20 con regressione CTA).
+    Due giudizi separati (D44):
+    - SAFETY deterministica e bloccante: la patch si applica, non introduce
+      NUOVI errori (coppie rule/node mai viste prima), non aumenta warning,
+      non peggiora il conteggio. Il conteggio da solo premiava patch che
+      fissano 4 hardcoded e ne rompono 1 di contrasto.
+    - QUALITY: basta UNA delle due basi —
+      (a) conteggio: errori ridotti di almeno MIN_FIXES, oppure
+      (b) padre: le ops coprono almeno 2 delle 5 priorita' della diagnosi
+      cieca (il padre ha visto il PNG, il contatore no). La copertura e'
+      per sottoalbero: un fix su un discendente/antenato del nodo cieco conta.
+    Le ops colpevoli di regressione vengono scartate da sole (gate
+    tollerante): 2 hex cattivi non uccidono piu' 10 fix buoni.
     Usa MAX_OPS_PROPOSE (redesign) invece di MAX_OPS (fix puntuale).
-    Ritorna {"applied", "screen", "ops", "before", "after", "detail"}.
+    Ritorna {"applied", "screen", "ops", "before", "after", "detail",
+             "quality", "coverage"}.
     """
     errors, warnings = validate_fn(screen)
     before = (len(errors), len(warnings))
@@ -647,11 +732,13 @@ def gate_propose(screen: dict, ops: list, validate_fn) -> dict:
     if not isinstance(ops, list):
         return {"applied": False, "screen": screen, "ops": [],
                 "before": before, "after": before, "dropped": [],
-                "detail": "la patch non e' un array JSON"}
+                "detail": "la patch non e' un array JSON",
+                "quality": "", "coverage": []}
     if len(ops) > MAX_OPS_PROPOSE:
         return {"applied": False, "screen": screen, "ops": [],
                 "before": before, "after": before, "dropped": [],
-                "detail": f"troppe operazioni ({len(ops)} > {MAX_OPS_PROPOSE})"}
+                "detail": f"troppe operazioni ({len(ops)} > {MAX_OPS_PROPOSE})",
+                "quality": "", "coverage": []}
     patched, applied, dropped = apply_patch_tolerant(screen, ops)
     n_errors, n_warnings = validate_fn(patched)
     after = (len(n_errors), len(n_warnings))
@@ -676,14 +763,38 @@ def gate_propose(screen: dict, ops: list, validate_fn) -> dict:
     if new_keys:
         detail = "regressione: " + "; ".join(f"{r} su '{n}'" for r, n in new_keys[:5])
         return {"applied": False, "screen": screen, "ops": [],
-                "before": before, "after": after, "dropped": dropped, "detail": detail}
+                "before": before, "after": after, "dropped": dropped,
+                "detail": detail, "quality": "", "coverage": []}
+    # safety: mai peggiorare (il confronto per chiavi non copre il caso di
+    # due finding stessa rule/node su path diversi)
+    if after[0] > before[0] or after[1] > before[1]:
+        detail = ("peggiorata: "
+                  + "; ".join(f"{f.rule_id} su '{f.node_id}'" for f in n_errors[:5]))
+        return {"applied": False, "screen": screen, "ops": [],
+                "before": before, "after": after, "dropped": dropped,
+                "detail": detail, "quality": "", "coverage": []}
     fixed = before[0] - after[0]
     min_fixes = 2 if before[0] >= 10 else 1
-    if after[0] < before[0] and after[1] <= before[1] and fixed >= min_fixes:
+    count_ok = after[0] < before[0] and fixed >= min_fixes
+    cov_n, covered, blind_ids = _blind_coverage(screen, applied, blind)
+    blind_ok = bool(blind_ids) and cov_n >= min(BLIND_COVER_MIN, len(blind_ids))
+    if count_ok:
         return {"applied": True, "screen": patched, "ops": applied,
-                "before": before, "after": after, "dropped": dropped, "detail": ""}
+                "before": before, "after": after, "dropped": dropped,
+                "detail": "", "quality": f"conteggio ({fixed} fix)",
+                "coverage": covered}
+    if blind_ok:
+        return {"applied": True, "screen": patched, "ops": applied,
+                "before": before, "after": after, "dropped": dropped,
+                "detail": "",
+                "quality": (f"padre ({cov_n}/{len(blind_ids)} priorita': "
+                            f"{', '.join(covered)})"),
+                "coverage": covered}
     detail = "; ".join(f"{f.rule_id} su '{f.node_id}'" for f in n_errors[:5])
-    if fixed < min_fixes and after[0] < before[0]:
+    if blind_ids:
+        detail += f" — copertura padre {cov_n}/{len(blind_ids)} (< {min(BLIND_COVER_MIN, len(blind_ids))})"
+    elif fixed < min_fixes and after[0] < before[0]:
         detail = f"miglioramento insufficiente ({fixed} < {min_fixes} min): {detail}"
     return {"applied": False, "screen": screen, "ops": [],
-            "before": before, "after": after, "dropped": dropped, "detail": detail}
+            "before": before, "after": after, "dropped": dropped,
+            "detail": detail, "quality": "", "coverage": covered}

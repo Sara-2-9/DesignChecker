@@ -413,3 +413,27 @@ Cura:
    selezionato` nel terminale. --quiet lo silenzia come gli altri log.
 
 170 test OK.
+
+## D44 — Gate in due giudizi: safety deterministica + qualità dal padre (2026-09)
+
+Sintomo reale (Pay-Frame): proposta UX sensata (CTA riposizionata, stepper
+corretto, label VoiceOver, Terms leggibile) RIFIUTATA con 23→22 per
+"miglioramento insufficiente (1 < 2)". La diagnosi cieca del padre misurava
+UX dal PNG, il gate contava hex nel JSON: "cosa fare" e "cosa conta" erano
+disallineati. Di converso, togliere il gate avrebbe fatto passare chiavi
+morte (`props/label` su Text), conflitti ("ultimo vince" su 4 CTA diverse),
+hex su nodi già tokenizzati e `source_url` inventati — tutti visti nei log.
+
+Decisione: il gate resta, ma diviso in due giudizi.
+1. SAFETY deterministica e bloccante (invariata e rafforzata): la patch si
+   applica, zero nuovi errori, warning non in aumento, conteggio non
+   peggiorato. Le ops colpevoli di regressione si scartano da sole (gate
+   tollerante): 2 hex cattivi non uccidono più 10 fix buoni.
+2. QUALITY con doppia base: basta una — (a) conteggio (soglia di prima) o
+   (b) padre: le ops coprono almeno 2 delle 5 priorità della diagnosi cieca
+   (match per sottoalbero: fix sul discendente/antenato conta). La base
+   usata è registrata (`quality`, `coverage`) in log ed eval.
+Motivazione: il determinismo dove è forte (sicurezza), il giudizio dove
+serve gusto (qualità) — dal padre che ha visto il PNG, contato in modo
+deterministico e testabile. L'AI non diventa validatore (D40 confermata):
+la copertura blind è calcolata qui, non chiesta al modello.

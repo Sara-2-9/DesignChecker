@@ -572,10 +572,12 @@ class Bridge:
             return [f for f in fs if f.severity == "error"], \
                    [f for f in fs if f.severity == "warning"]
 
-        gate = patcher.gate_propose(screen, prop["ops"], validate_fn)
+        gate = patcher.gate_propose(screen, prop["ops"], validate_fn,
+                                    blind=prop.get("blind"))
         dur = time.monotonic() - t0
         before, after = gate["before"], gate["after"]
         dropped = gate.get("dropped", [])
+        quality = gate.get("quality", "")
         if dropped:
             _emit(f"gate apply: {len(gate['ops'])} ops applicate, {len(dropped)} scartate")
             for d in dropped[:5]:
@@ -583,12 +585,13 @@ class Bridge:
                 why = d.get("reason", "") if isinstance(d, dict) else ""
                 self._log(f"    scartata {op.get('op')} {op.get('path')} — {why}")
         _emit(f"gate validatore: {before[0]}→{after[0]} errori, {before[1]}→{after[1]} warning "
-              f"in {dur:.1f}s — {'ACCETTATA' if gate['applied'] else 'RIFIUTATA: ' + gate['detail'][:120]}")
+              f"in {dur:.1f}s — {'ACCETTATA' + (f' [{quality}]' if quality else '') if gate['applied'] else 'RIFIUTATA: ' + gate['detail'][:160]}")
 
         result: dict = {
             "role": prop["role"], "sources": prop["sources"],
             "blind": prop["blind"], "applied": gate["applied"],
             "before": list(before), "after": list(after),
+            "quality": quality, "coverage": gate.get("coverage", []),
             "ops": [{"op": o.get("op"), "path": o.get("path")} for o in gate["ops"]],
             "log": prop["log"], "platform": platform, "theme": theme,
             "baseline": baseline,
@@ -596,6 +599,7 @@ class Bridge:
         self._log_eval(screen_id, {"role": prop["role"], "platform": platform,
                                    "theme": theme, "before": list(before),
                                    "after": list(after), "applied": gate["applied"],
+                                   "quality": quality,
                                    "sources": [s["url"] for s in prop["sources"]],
                                    "ops": len(gate["ops"]),
                                    "dropped": len(dropped)})
@@ -623,13 +627,32 @@ class Bridge:
 
     def get_screen(self, screen_id: str) -> dict | None:
         from .codegen import kebab
-        # normalizza: "Home2" -> "home2" (l'id dei file e' sempre kebab-case)
-        safe = kebab(screen_id)
-        safe = "".join(c for c in safe if c.isalnum() or c in "-_")  # anti path traversal
-        path = self.root / "imports" / f"{safe}.screen.json"
-        if not path.is_file():
+        # Prova l'id com'e' e poi la forma kebab ("Home" -> "home").
+        # Il kebab da solo non basta: mangia i punti, cosi'
+        # "pay-frame.ai-proposal" diventava "pay-frame-ai-proposal" e il
+        # render manuale del proposal finiva in 404 (bug Pay-Frame).
+        raw = (screen_id or "").strip().strip("/")
+        candidates = []
+        if raw and "/" not in raw and "\\" not in raw and ".." not in raw:
+            safe = "".join(c for c in raw if c.isalnum() or c in "-_.")
+            if safe:
+                candidates.append(safe)
+            kb = "".join(c for c in kebab(raw) if c.isalnum() or c in "-_")
+            if kb:
+                candidates.append(kb)
+        try:
+            base = (self.root / "imports").resolve()
+        except OSError:
             return None
-        return json.loads(path.read_text(encoding="utf-8"))
+        for safe in dict.fromkeys(candidates):
+            path = self.root / "imports" / f"{safe}.screen.json"
+            try:
+                if path.resolve().parent != base or not path.is_file():
+                    continue
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+        return None
 
     def list_screens(self) -> list[str]:
         """Id degli screen importati (per l'autocompletamento nel plugin)."""

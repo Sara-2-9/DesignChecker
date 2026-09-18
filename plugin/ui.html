@@ -459,6 +459,10 @@ window.onmessage = async (event) => {
   }
   if (msg.type === 'error') {
     $('status').textContent = msg.message;
+    // Sblocca i bottoni AI: se l'errore arriva dopo export-propose
+    // (es. nessuna selezione valida), aiBusy resterebbe true per sempre
+    // e tutti i bottoni AI sembrerebbero morti fino al reload.
+    setAiBusy(false);
   }
   if (msg.type === 'rendered') {
     $('status').textContent = '✓ Creato sul canvas: ' + msg.name;

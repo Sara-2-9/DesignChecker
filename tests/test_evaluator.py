@@ -376,6 +376,87 @@ class TestGateNoRegression(unittest.TestCase):
         self.assertIn("regressione", gate["detail"])
 
 
+class TestBlindQuality(unittest.TestCase):
+    """D44: la qualita' puo' venire dal padre (copertura diagnosi cieca),
+    non solo dal conteggio. Safety invariata: mai nuovi errori/warning."""
+
+    def _scr(self):
+        return {"root": {"id": "r", "children": [
+            {"id": "card", "type": "Stack", "children": [
+                {"id": "title", "type": "Text",
+                 "props": {"content": "Hi", "variant": "body"}},
+                {"id": "cta", "type": "Button",
+                 "props": {"label": "Go", "min_height": 48}}]}]}}
+
+    def test_blind_coverage_accepts_without_count_move(self):
+        from designchecker.validator import Finding
+        scr = self._scr()
+        blind = [{"node": "card", "issue": "x"}, {"node": "cta", "issue": "y"}]
+        ops = [
+            {"op": "add", "path": "/root/children/0/children/0/a11y/label",
+             "value": "Hi there"},
+            {"op": "add", "path": "/root/children/0/children/1/a11y/label",
+             "value": "Go now"},
+        ]
+
+        def vf(s):
+            return [Finding("a", "error", "elsewhere", "m")], []
+        gate = patcher.gate_propose(scr, ops, vf, blind=blind)
+        self.assertTrue(gate["applied"])
+        self.assertTrue(gate["quality"].startswith("padre"))
+        self.assertEqual(gate["before"], gate["after"])
+
+    def test_blind_coverage_counts_subtree(self):
+        from designchecker.validator import Finding
+        scr = self._scr()
+        # cieco su card+cta, fix solo sul figlio cta: copre entrambi
+        blind = [{"node": "card", "issue": "x"}, {"node": "cta", "issue": "y"}]
+        ops = [{"op": "add", "path": "/root/children/0/children/1/a11y/label",
+                "value": "Go now"}]
+
+        def vf(s):
+            return [Finding("a", "error", "elsewhere", "m")], []
+        gate = patcher.gate_propose(scr, ops, vf, blind=blind)
+        self.assertTrue(gate["applied"])
+        self.assertIn("card", gate["coverage"])
+
+    def test_blind_low_coverage_still_rejects(self):
+        from designchecker.validator import Finding
+        scr = self._scr()
+        # ciechi su nodi mai toccati: copertura 0
+        blind = [{"node": "ghost1", "issue": "x"},
+                 {"node": "ghost2", "issue": "y"},
+                 {"node": "ghost3", "issue": "z"}]
+        ops = [{"op": "add", "path": "/root/children/0/children/0/a11y/label",
+                "value": "Hi there"}]
+
+        def vf(s):
+            return [Finding("a", "error", "elsewhere", "m")], []
+        gate = patcher.gate_propose(scr, ops, vf, blind=blind)
+        self.assertFalse(gate["applied"])
+        self.assertIn("copertura padre 0/3", gate["detail"])
+
+    def test_blind_never_overrides_safety(self):
+        from designchecker.validator import Finding
+        scr = self._scr()
+        # la colpevole viene scartata, ma il resto copre 1/3: comunque rifiuto
+        blind = [{"node": "card", "issue": "x"},
+                 {"node": "other", "issue": "y"},
+                 {"node": "third", "issue": "z"}]
+        ops = [{"op": "add", "path": "/root/children/0/children/0/a11y/label",
+                "value": "Hi there"},
+               {"op": "add", "path": "/root/props/broken", "value": True}]
+
+        def vf(s):
+            errs = [Finding("a", "error", "elsewhere", "m")]
+            if s["root"].get("props", {}).get("broken"):
+                errs.append(Finding("NEW", "error", "nx", "m"))
+            return errs, []
+        gate = patcher.gate_propose(scr, ops, vf, blind=blind)
+        self.assertFalse(gate["applied"])
+        self.assertIn("copertura padre 1/3", gate["detail"])
+
+
 class TestCopyFrameCofix(unittest.TestCase):
     """Pay-Frame: 'Add 15 $' -> 'Add $15 to wallet' con w:70 = troncato."""
 

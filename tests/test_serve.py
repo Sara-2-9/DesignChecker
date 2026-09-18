@@ -59,6 +59,30 @@ class TestBridge(unittest.TestCase):
         self.bridge.import_screen(screen)
         self.assertIsNotNone(self.bridge.get_screen("Home"))
 
+    def test_get_screen_trova_proposal_con_punti(self):
+        """'pay-frame.ai-proposal' ha punti nell'id: il kebab li mangiava
+        e il render manuale finiva in 404 (bug Pay-Frame)."""
+        target = self.bridge.root / "imports" / "test-dotted.id.screen.json"
+        target.write_text(json.dumps({
+            "schema_version": "0.1.0",
+            "meta": {"id": "test-dotted", "proposal_of": "test-dotted"},
+            "root": {"id": "test-dotted", "type": "Screen"}}, ensure_ascii=False),
+            encoding="utf-8")
+        try:
+            loaded = self.bridge.get_screen("test-dotted.id")
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded["meta"].get("proposal_of"), "test-dotted")
+            # round-trip con list_screens: cio' che suggerisce si deve risolvere
+            self.assertIn("test-dotted.id", self.bridge.list_screens())
+            self.assertIsNotNone(self.bridge.get_screen("test-dotted.id"))
+        finally:
+            target.unlink(missing_ok=True)
+
+    def test_get_screen_rifiuta_traversal_con_punti(self):
+        self.assertIsNone(self.bridge.get_screen("../pay-frame.ai-proposal"))
+        self.assertIsNone(self.bridge.get_screen(".."))
+        self.assertIsNone(self.bridge.get_screen(""))
+
     def test_list_screens(self):
         self.assertIn("home", self.bridge.list_screens())
 

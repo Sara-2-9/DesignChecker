@@ -310,15 +310,17 @@ def _evaluator_command(args, root: Path, rules) -> None:
         return [f for f in fs if f.severity == "error"], \
                [f for f in fs if f.severity == "warning"]
 
-    gate = patcher.gate_propose(screen, prop["ops"], validate_fn)
+    gate = patcher.gate_propose(screen, prop["ops"], validate_fn,
+                                  blind=prop.get("blind"))
     print(f"Ruolo: {prop['role']['role']} — {prop['role'].get('user_goal','')}")
     print(f"Fix uniti: {len(prop['fixes'])} → ops: {len(prop['ops'])}")
+    quality = gate.get("quality", "")
+    verdict = f"ACCETTATA [{quality}]" if gate["applied"] else "RIFIUTATA: " + gate["detail"]
     if gate.get("dropped"):
         print(f"Scartate in apply: {len(gate['dropped'])} "
               f"({'; '.join(str(d.get('reason', ''))[:60] for d in gate['dropped'][:3])})")
     print(f"Gate: {gate['before'][0]}→{gate['after'][0]} errori, "
-          f"{gate['before'][1]}→{gate['after'][1]} warning — "
-          f"{'ACCETTATA' if gate['applied'] else 'RIFIUTATA: ' + gate['detail']}")
+          f"{gate['before'][1]}→{gate['after'][1]} warning — {verdict}")
     if gate["applied"]:
         out = args.screen.parent / f"{args.screen.stem}.ai-proposal.screen.json"
         bak = out.with_suffix(out.suffix + ".bak")
