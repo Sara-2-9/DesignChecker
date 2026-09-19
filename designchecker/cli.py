@@ -144,6 +144,16 @@ def main(argv: list[str] | None = None) -> None:
     p_propose.add_argument("--no-baseline", action="store_true",
                            help="Salta i findings iniziali: padre cieco da JSON+PNG+ricerca (anti-ancoraggio)")
 
+    p_describe = sub.add_parser("describe",
+                                help="Scheda di stile AI da un PNG: palette, tipo, ritmo, componenti, mood")
+    p_describe.add_argument("image", type=Path, help="PNG/JPEG del frame (screenshot o export Figma)")
+    p_describe.add_argument("--context", default=None,
+                            help="Contesto opzionale sull'app per calibrare la descrizione")
+    p_describe.add_argument("--platform", choices=["ios", "android", "custom", "both"],
+                            default=None, help="Piattaforma del design (default: both)")
+    p_describe.add_argument("--out", type=Path, default=None,
+                            help="Salva la scheda in markdown (default: solo stampa)")
+
     args = parser.parse_args(argv)
     root = _find_project_root()
 
@@ -232,8 +242,61 @@ def main(argv: list[str] | None = None) -> None:
         _evaluator_command(args, root, rules)
         return
 
+    if args.command == "describe":
+        _describe_command(args)
+        return
+
     if args.command in ("link", "screens", "import"):
         _figma_commands(args, root)
+
+
+def _describe_command(args) -> None:
+    """dck describe: scheda di stile da un PNG. Legge l'immagine, la manda
+    al vision-model, stampa (e opzionalmente salva) la scheda markdown.
+    Non tocca JSON, non valida: solo giudizio leggibile."""
+    import base64 as _b64
+    from .describer import describe_image
+
+    img = Path(args.image).expanduser()
+    if not img.is_file():
+        print(f"File non trovato: {args.image}", file=sys.stderr)
+        sys.exit(2)
+    if img.stat().st_size > 8 * 1024 * 1024:
+        print("Immagine oltre 8MB: riducila e riprova", file=sys.stderr)
+        sys.exit(2)
+    mime = {"png": "image/png", "jpg": "image/jpeg",
+            "jpeg": "image/jpeg"}.get(img.suffix.lower().lstrip("."))
+    if mime is None:
+        print("Solo PNG o JPEG (screenshot o export Figma)", file=sys.stderr)
+        sys.exit(2)
+    config = _load_config()
+    p, model = _resolve_provider(config, "review")
+    if p is None or not model:
+        print("Nessun provider AI configurato. Lancia prima: dck ai", file=sys.stderr)
+        sys.exit(2)
+    from . import ai as _ai
+    if not _ai.supports_vision(p, model):
+        print(f"Il modello {model} non ha vision: serve un modello con "
+              f"supporto immagini (cambia con: dck ai)", file=sys.stderr)
+        sys.exit(2)
+
+    def chat_fn(messages):
+        return _ai.chat(p, model, messages, config)
+
+    print(f"── Describe ({p.label} · {model}) ──")
+    try:
+        result = describe_image(chat_fn, _b64.b64encode(img.read_bytes()).decode(),
+                                args.context, args.platform, mime)
+    except Exception as e:
+        print(f"Il provider non risponde: {e}", file=sys.stderr)
+        sys.exit(1)
+    print()
+    print(result["text"])
+    print()
+    if args.out:
+        out = Path(args.out).expanduser()
+        out.write_text(result["text"] + "\n", encoding="utf-8")
+        print(f"✓ Scheda salvata: {out}")
 
 
 def _evaluator_command(args, root: Path, rules) -> None:

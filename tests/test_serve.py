@@ -441,8 +441,41 @@ class TestBridgeAI(unittest.TestCase):
             screen = load_screen(ROOT / "examples" / "imported-home.screen.json")
             self.assertIn("error", self.bridge.ai_review(screen))
             self.assertIn("error", self.bridge.ai_fix(screen))
+            self.assertIn("error", self.bridge.ai_describe("QUJD"))
         finally:
             Bridge._ai_provider = orig
+
+    def test_describe_scheda_senza_scritture(self):
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        orig_vision = ai_mod.supports_vision
+        Bridge._ai_provider = lambda self: (p, model, {})
+        ai_mod.chat = lambda *a, **k: "## Sintesi\nBella schermata dark"
+        ai_mod.supports_vision = lambda *a, **k: True
+        try:
+            result = self.bridge.ai_describe("QUJD", platform="ios")
+            self.assertIn("text", result)
+            self.assertIn("Sintesi", result["text"])
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat
+            ai_mod.supports_vision = orig_vision
+
+    def test_describe_richiede_preview_e_vision(self):
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        orig_provider = Bridge._ai_provider
+        orig_vision = ai_mod.supports_vision
+        Bridge._ai_provider = lambda self: (p, model, {})
+        try:
+            self.assertIn("error", self.bridge.ai_describe(None))
+            ai_mod.supports_vision = lambda *a, **k: False
+            self.assertIn("error", self.bridge.ai_describe("QUJD"))
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.supports_vision = orig_vision
 
     def test_fix_applica_patch_e_salva(self):
         import designchecker.ai as ai_mod

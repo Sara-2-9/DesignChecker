@@ -91,6 +91,7 @@
   <div class="row">
     <button id="btn-review" class="secondary" disabled>Valuta il design</button>
     <button id="btn-fix" class="secondary" disabled>Correggi con AI</button>
+    <button id="btn-describe" class="secondary" disabled>dck describe</button>
   </div>
   <div class="row">
     <button id="btn-propose" class="secondary" disabled>Proponi nuovo design (padre+figli)</button>
@@ -146,6 +147,7 @@ async function boot() {
       $('btn-review').disabled = false;
       $('btn-fix').disabled = false;
       $('btn-propose').disabled = false;
+      $('btn-describe').disabled = false;
     } else {
       $('ai-model').textContent = '· non configurata (dck ai)';
     }
@@ -229,6 +231,7 @@ function setAiBusy(busy, label) {
   $('btn-review').disabled = busy;
   $('btn-fix').disabled = busy;
   $('btn-propose').disabled = busy;
+  $('btn-describe').disabled = busy;
   if (label) $('status').textContent = label;
 }
 
@@ -329,6 +332,37 @@ $('btn-propose').onclick = async () => {
   aiOut('');
   parent.postMessage({ pluginMessage: { type: 'export-propose' } }, '*');
 };
+
+// dck describe: PNG del frame selezionato -> POST /describe -> scheda stile.
+$('btn-describe').onclick = async () => {
+  if (aiBusy) return;
+  setAiBusy(true, 'descrivo lo stile dal frame…');
+  aiOut('');
+  parent.postMessage({ pluginMessage: { type: 'export-describe' } }, '*');
+};
+
+async function describeWithPreview(preview_base64) {
+  try {
+    const data = await bridge('/describe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preview_base64,
+                             context: $('ai-context').value.trim() || undefined,
+                             platform: $('platform').value }),
+    });
+    if (data.error) {
+      aiOut('<div class="finding error"><div>' + data.error + '</div></div>');
+      $('status').textContent = 'describe: errore';
+    } else {
+      aiOut('<div class="critique">' +
+        String(data.text || '').replace(/</g, '&lt;') + '</div>');
+      $('status').textContent = 'scheda stile pronta (consultiva: non tocca il JSON)';
+    }
+  } catch (e) {
+    $('status').textContent = 'bridge irraggiungibile durante describe';
+  }
+  setAiBusy(false);
+}
 
 async function proposeWithScreen(screen, preview_base64, assets) {
   const phases = [];
@@ -453,6 +487,15 @@ window.onmessage = async (event) => {
       await proposeWithScreen(msg.screen, msg.preview_base64, msg.assets);
     } catch (e) {
       $('status').textContent = 'bridge irraggiungibile durante la proposta';
+      setAiBusy(false);
+    }
+    return;
+  }
+  if (msg.type === 'describe-exported') {
+    try {
+      await describeWithPreview(msg.preview_base64);
+    } catch (e) {
+      $('status').textContent = 'bridge irraggiungibile durante describe';
       setAiBusy(false);
     }
     return;

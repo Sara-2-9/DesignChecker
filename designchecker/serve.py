@@ -193,6 +193,43 @@ class Bridge:
             self._log(f"  ✗ provider irraggiungibile: {e}")
             return {"error": f"Il provider non risponde: {e}"}
 
+    def ai_describe(self, preview_base64: str | None,
+                      context: str | None = None,
+                      platform: str | None = None) -> dict:
+        """Scheda di stile da un PNG (bottone 'dck describe' nel plugin).
+        Consultiva: non tocca JSON, non valida, non scrive file."""
+        from . import ai as _ai
+        from .describer import build_describe_messages, describe_image
+        p, model, config = self._ai_provider()
+        if p is None:
+            return {"error": "Provider AI non configurato: lancia `dck ai`"}
+        if not preview_base64:
+            return {"error": "Nessuna anteprima: seleziona un frame sul canvas"}
+        if not _ai.supports_vision(p, model):
+            return {"error": f"Il modello {model} non ha vision: cambialo con `dck ai`"}
+        self._log(f"→ /describe [{platform or 'both'}]: {p.label} · {model} — "
+                  f"scheda di stile dal PNG"
+                  f"{' + contesto utente' if context else ''}")
+        for m in build_describe_messages(preview_base64, context, platform):
+            content = m.get("content", "")
+            if isinstance(content, list):
+                content = "\n".join(p.get("text", "") for p in content
+                                    if isinstance(p, dict) and p.get("type") == "text")
+                content += "\n[+ PNG del frame allegato]"
+            self._log_block(f"PROMPT → AI [{m.get('role')}]", str(content))
+        t0 = time.monotonic()
+        try:
+            result = describe_image(lambda ms: _ai.chat(p, model, ms, config),
+                                    preview_base64, context, platform)
+            text = result["text"].strip()
+            self._log_block("RISPOSTA ← AI (scheda stile)", text)
+            self._log(f"  ✓ scheda ricevuta in {time.monotonic() - t0:.1f}s "
+                      f"({len(text)} caratteri) — nessuna scrittura, e' consultiva")
+            return {"text": text}
+        except Exception as e:
+            self._log(f"  ✗ provider irraggiungibile: {e}")
+            return {"error": f"Il provider non risponde: {e}"}
+
     def ai_fix(self, screen: dict, context: str | None = None,
                platform: str | None = None,
                theme: str | None = None) -> dict:
@@ -727,6 +764,10 @@ def make_handler(bridge: Bridge):
             elif self.path == "/review":
                 self._send(200, bridge.ai_review(screen, context=payload.get("context"),
                                                  platform=platform, theme=theme))
+            elif self.path == "/describe":
+                self._send(200, bridge.ai_describe(
+                    payload.get("preview_base64"), context=payload.get("context"),
+                    platform=payload.get("platform")))
             elif self.path == "/fix":
                 self._send(200, bridge.ai_fix(screen, context=payload.get("context"),
                                               platform=platform, theme=theme))

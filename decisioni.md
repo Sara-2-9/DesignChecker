@@ -527,3 +527,15 @@ layer blur, vetro, qualunque combinazione; colori via token, resto grezzo);
 il singolo backdropBlur resta per i vecchi JSON. Validatore e codegen
 leggono solo variant: zero nuovi finding (contratto da test). Fuori:
 segmenti multi-stile, font custom nel codegen, semantica auto-layout.
+
+## D50 — dck describe: scheda di stile da PNG (2026-09)
+
+Richiesta: descrivere a parole stile e caratteristiche di un frame dal solo
+PNG. Decisione: comando `dck describe <png> [--context] [--platform]
+[--out]` (modulo `designchecker/describer.py`, prompt con 7 sezioni fisse:
+sintesi, palette, tipografia, layout/ritmo, componenti, stile/mood,
+piattaforma; max 300 parole). Regole dichiarate nel prompt: mai hex
+esatti, mai misure in pixel, mai inventare testi illeggibili o stati.
+Non tocca JSON, non valida: artefatto leggibile (brief, doc design system,
+DNA da allegare alle proposte). Richiede modello con vision, altrimenti
+errore esplicito.
