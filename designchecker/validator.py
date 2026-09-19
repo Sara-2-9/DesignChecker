@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .tokens import TokenStore, contrast_ratio, dimension_to_float, HEX_RE
+from .tokens import TokenStore, contrast_ratio, dimension_to_float, HEX_RE, screen_brand
 
 LARGE_TEXT_VARIANTS = {"title", "heading"}  # WCAG: testo grande
 
@@ -275,8 +275,13 @@ def check_no_hardcoded_value(node, rule, ctx):
     # non sono una decisione "hard-coded", sono una lettura del canvas
     if (node.get("meta", {}) or {}).get("visual_bg"):
         return None
+    # D49: il brand dello screen non e' un anonimo da tokenizzare,
+    # e' l'identita' letta dal frame (meta.brand)
+    brand_hexes = {v.upper() for v in screen_brand(ctx.screen).values()}
     for key, value in (node.get("style", {}) or {}).items():
         if isinstance(value, str) and HEX_RE.match(value.strip()):
+            if value.strip().upper() in brand_hexes:
+                continue
             findings.append(make_finding(rule, node.get("id", "?"),
                                          value=value, path=key))
     return findings

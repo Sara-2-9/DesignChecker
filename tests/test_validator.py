@@ -105,6 +105,46 @@ class TestValidatorImportedScreen(unittest.TestCase):
         self.assertEqual(severities, {"error", "warning"})
 
 
+class TestBrandScreen(unittest.TestCase):
+    """D49: il brand dello screen non e' un hardcoded da segnalare."""
+
+    def _screen(self, brand=None):
+        meta = {"id": "t", "platform": "ios", "theme": "dark"}
+        if brand:
+            meta["brand"] = brand
+        return {"schema_version": "0.1.0", "meta": meta,
+                "root": {"id": "r", "type": "Screen",
+                         "layout": {"safe_area": True},
+                         "style": {"background": "{color.surface}"},
+                         "children": [
+                             {"id": "cta", "type": "Stack",
+                              "layout": {"frame": {"x": 0, "y": 0,
+                                                  "w": 100, "h": 40}},
+                              "style": {"background": "#0088FF"}},
+                             {"id": "other", "type": "Stack",
+                              "layout": {"frame": {"x": 0, "y": 50,
+                                                  "w": 100, "h": 40}},
+                              "style": {"background": "#123456"}}]}}
+
+    def test_brand_esente_gli_altri_no(self):
+        rules, catalog, tokens = _setup()
+        scr = self._screen({"color.brand.primary": "#0088FF"})
+        findings = validate(scr, rules, tokens, catalog,
+                            platform="ios", theme="dark")
+        by_node = {(f.rule_id, f.node_id) for f in findings
+                   if f.severity == "error"}
+        self.assertNotIn(("ds.no-hardcoded-value", "cta"), by_node)
+        self.assertIn(("ds.no-hardcoded-value", "other"), by_node)
+
+    def test_senza_brand_tutto_segnalato(self):
+        rules, catalog, tokens = _setup()
+        findings = validate(self._screen(), rules, tokens, catalog,
+                            platform="ios", theme="dark")
+        by_node = {(f.rule_id, f.node_id) for f in findings
+                   if f.severity == "error"}
+        self.assertIn(("ds.no-hardcoded-value", "cta"), by_node)
+
+
 if __name__ == "__main__":
     unittest.main()
 

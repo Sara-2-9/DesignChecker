@@ -7,8 +7,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from designchecker.loader import load_tokens
-from designchecker.tokens import (TokenStore, hex_to_token_map, is_themed,
-                                  themed_variants)
+from designchecker.tokens import (TokenStore, effective_token_values,
+                                  hex_saturation, hex_to_token_map, is_themed,
+                                  screen_brand, themed_variants)
 
 
 class TestMultiThemeTokens(unittest.TestCase):
@@ -54,6 +55,34 @@ class TestMultiThemeTokens(unittest.TestCase):
         self.assertEqual(m.get("#1C1C1E"), "color.surface-raised")
         # il primitivo resta raggiungibile per il suo hex specifico
         self.assertEqual(m.get("#3A3A3C"), "color.neutral.700")
+
+
+class TestScreenBrand(unittest.TestCase):
+    """D49: brand per-screen letto dal frame, default da tokens.json."""
+
+    def test_screen_brand_valido(self):
+        scr = {"meta": {"brand": {"color.brand.primary": "#0088FF"}}}
+        self.assertEqual(screen_brand(scr), {"color.brand.primary": "#0088FF"})
+
+    def test_screen_brand_scartati_non_validi(self):
+        self.assertEqual(screen_brand({"meta": {}}), {})
+        self.assertEqual(screen_brand({"meta": {"brand": "blu"}}), {})
+        self.assertEqual(screen_brand(
+            {"meta": {"brand": {"color.brand.primary": "non-hex"}}}), {})
+
+    def test_valori_effettivi_usano_brand(self):
+        tokens = TokenStore(load_tokens(ROOT / "examples" / "tokens.json"))
+        scr = {"meta": {"brand": {"color.brand.primary": "#0088FF"}}}
+        vals = effective_token_values(tokens, "dark", scr)
+        self.assertEqual(vals["color.brand.primary"], "#0088FF")
+        self.assertEqual(vals["color.surface"], "#121212")  # resto dal tema
+        plain = effective_token_values(tokens, "dark", {"meta": {}})
+        self.assertEqual(plain["color.brand.primary"], "#5E8F6E")
+
+    def test_saturazione(self):
+        self.assertGreater(hex_saturation("#0088FF"), 0.5)
+        self.assertEqual(hex_saturation("#6E6E6E"), 0)
+        self.assertIsNone(hex_saturation("non-hex"))
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 
 from .codegen import kebab
-from .tokens import TokenStore, dimension_to_float, hex_to_token_map
+from .tokens import TokenStore, dimension_to_float, hex_saturation, hex_to_token_map
 
 ALIASES = {
     "tabbar": "TabBar", "navbar": "TabBar", "navigationbar": "TabBar",
@@ -143,6 +143,47 @@ def _effect_info(effects, token_or_value) -> list | None:
                 item["blendMode"] = e["blendMode"]
         out.append(item)
     return out or None
+
+
+def _extract_brand(root) -> str | None:
+    """Brand dello screen = hex saturo piu' 'pesante' (occorrenze + area).
+
+    Parita' col plugin (code.js extractBrand). Neutri esclusi per saturazione,
+    gradienti approssimati esclusi: il brand e' il colore distintivo del frame.
+    D49: input per-screen letto dal canvas, protetto dentro lo screen."""
+    scores: dict[str, dict] = {}
+
+    def walk(n):
+        if not isinstance(n, dict):
+            return
+        st = n.get("style", {}) or {}
+        fr = (n.get("layout", {}) or {}).get("frame") or {}
+        try:
+            area = float(fr.get("w", 0)) * float(fr.get("h", 0))
+        except (TypeError, ValueError):
+            area = 0
+        skip = (n.get("meta", {}) or {}).get("visual_bg")
+        border = st.get("border") or {}
+        for v in (st.get("background"), st.get("color"),
+                  border.get("color") if isinstance(border, dict) else None):
+            if not isinstance(v, str) or not v.startswith("#") or skip:
+                continue
+            sat = hex_saturation(v)
+            if sat is None or sat < 0.15:
+                continue
+            key = v.upper()
+            s = scores.setdefault(key, {"n": 0, "area": 0})
+            s["n"] += 1
+            s["area"] += area
+        for c in n.get("children", []) or []:
+            walk(c)
+    walk(root)
+    best, best_score = None, -1
+    for hx, s in scores.items():
+        score = s["n"] * 1000 + min(s["area"], 1000000)
+        if score > best_score:
+            best, best_score = hx, score
+    return best
 
 
 def _has_image_fill(fills) -> bool:
@@ -474,11 +515,17 @@ class FigmaImporter:
             for frame in page.get("children", []) or []:
                 if frame.get("name", "").lower() == frame_name.lower():
                     root = self.convert_node(frame, top_level=True)
+                    meta = {"id": kebab(frame_name),
+                            "name": f"{frame_name} (import Figma)",
+                            "route": "/" + kebab(frame_name), "status": "draft",
+                            "source": {"kind": "figma",
+                                       "confidence": root["meta"]["confidence"]}}
+                    brand = _extract_brand(root)
+                    if brand:
+                        meta["brand"] = {"color.brand.primary": brand}
                     return {
                         "schema_version": "0.1.0",
-                        "meta": {"id": kebab(frame_name), "name": f"{frame_name} (import Figma)",
-                                 "route": "/" + kebab(frame_name), "status": "draft",
-                                 "source": {"kind": "figma", "confidence": root["meta"]["confidence"]}},
+                        "meta": meta,
                         "root": root,
                     }
         return None

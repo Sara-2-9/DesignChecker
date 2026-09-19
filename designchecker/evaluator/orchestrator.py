@@ -281,7 +281,16 @@ def run_propose(screen: dict, findings: list | None = None,
 
     # 4b. direzione estetica: DNA + dialetto + diagnosi cieca riusata.
     # La blind era calcolata e mai usata (token buttati); ora guida i figli.
-    style_block = _design_dna(screen, token_values) + "\n" + _platform_dialect(platform)
+    # D49: il brand letto dal frame entra nella direzione (intoccabile).
+    from ..tokens import screen_brand as _screen_brand
+    _brand = _screen_brand(screen)
+    brand_line = ("BRAND DELLO SCREEN (identita' letta dal frame, intoccabile — "
+                  "mai mapparli su altri token, mai hex nuovi):\n" +
+                  "\n".join(f"- {p} → {v}" for p, v in _brand.items())) \
+        if _brand else ("BRAND DELLO SCREEN: nessun brand registrato — "
+                        "usa i token della lista.")
+    style_block = (_design_dna(screen, token_values) + "\n"
+                   + _platform_dialect(platform) + "\n" + brand_line)
     if isinstance(blind, list) and blind:
         issues = "; ".join(
             f"{b.get('node')}: {b.get('issue')}" for b in blind[:5]

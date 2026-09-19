@@ -389,7 +389,7 @@ class TestPromptIdentitaCromatica(unittest.TestCase):
         msgs = build_fix_prompt(self._screen(), [finding(node_id="r")],
                                 theme="dark", token_values=self._dark_values())
         system = msgs[0]["content"]
-        self.assertIn("IDENTITA' CROMATICA INVIOLABILE", system)
+        self.assertIn("IDENTITA' DI BRAND DELLO SCREEN (D49)", system)
         self.assertIn("dark resta dark", system)
         self.assertIn("MANTIENI l'hex originale", system)
         self.assertIn("palette-gap", system)

@@ -114,6 +114,46 @@ def hex_to_token_map(store: "TokenStore") -> dict:
     return out
 
 
+def hex_saturation(value: str) -> float | None:
+    """Saturazione 0..1 di un hex (0 = grigio/bianco/nero). None se non hex."""
+    rgb = hex_to_rgb(value)
+    if rgb is None:
+        return None
+    mx, mn = max(rgb), min(rgb)
+    return (mx - mn) / 255.0
+
+
+def screen_brand(screen: dict) -> dict:
+    """Brand dello screen: {path_token: hex} da meta.brand, o {}.
+
+    D49 (supera D42): il brand non e' piu' congelato sulla palette demo di
+    tokens.json, e' un input per-screen letto dal frame in import
+    (meta.brand: {"color.brand.primary": "#0088FF", ...}). Senza brand
+    registrato vale il default di tokens.json (vecchio comportamento)."""
+    meta = screen.get("meta", {}) or {}
+    brand = meta.get("brand") or {}
+    if not isinstance(brand, dict):
+        return {}
+    return {k: v for k, v in brand.items()
+            if isinstance(k, str) and isinstance(v, str)
+            and HEX_RE.match(v.strip())}
+
+
+def effective_token_values(store: "TokenStore", theme: str | None,
+                            screen: dict | None) -> dict:
+    """path -> valore risolto nel tema, con override del brand dello screen.
+
+    Il modello vede il brand VERO del frame (es. brand.primary -> #0088FF)
+    invece del verde demo: le proposte preservano l'identita' senza che
+    nessun hex anonimo giri per i prompt."""
+    values = {path: store.resolve_path(path, theme) for path in store.flat}
+    if screen:
+        for path, hex_value in screen_brand(screen).items():
+            if path in values:
+                values[path] = hex_value
+    return values
+
+
 def dimension_to_float(value) -> float | None:
     """'16', '16pt', 16 -> 16.0"""
     if isinstance(value, (int, float)):

@@ -438,6 +438,25 @@ serve gusto (qualità) — dal padre che ha visto il PNG, contato in modo
 deterministico e testabile. L'AI non diventa validatore (D40 confermata):
 la copertura blind è calcolata qui, non chiesta al modello.
 
+## D49 — Brand per-screen letto dal frame (supera D42) (2026-09)
+
+Sintomo reale: il brand demo verde (#5E8F6E, nato con lo scaffold e mai
+ratificato) combatteva il blu vero dei design (#0088FF), flaggandolo come
+errore; chiedere all'AI di mapparlo sul verde vandalizzava l'identita'.
+Decisione (revoca esplicita di D42 sul punto, come D42 stessa prevede):
+il brand e' un input per-screen, non un invariante globale.
+1. Import (plugin + REST): estrazione deterministica — hex saturo dominante
+   per occorrenze+area, neutri e gradienti esclusi — in meta.brand
+   ({"color.brand.primary": "#0088FF"}); loggato in /import. Senza brand
+   vale il default di tokens.json (vecchio comportamento).
+2. Validatore: il brand dello screen e' esente da ds.no-hardcoded-value
+   (e' identita', non anonimo). Resta protetto DENTRO lo screen: nessun fix
+   puo' ricolorarlo (safety del gate invariata).
+3. Prompt: valori effettivi (brand vero, non verde demo) nelle liste token;
+   sezioni BRAND DELLO SCREEN intoccabile in fix e propose.
+4. Codegen: theme.ts usa il brand dello screen.
+Ogni frame puo' avere il suo brand (Pay-Frame blu, Settings ciano).
+
 ## D45 — Fedelta' del round-trip Figma↔JSON: angoli, bordi, opacita', rotazione, ellissi, token tematizzati (2026-09)
 
 Sintomo reale (round-trip Settings-Frame, export->render senza modifiche):
@@ -475,19 +494,23 @@ BACKGROUND_BLUR; il render applica entrambi. Switch tiene i figli in
 entrambi gli importer; match per suffisso anche nella REST (parita' col
 plugin). Solo BACKGROUND_BLUR per ora; ombre e figli dei Button restano P1.
 
-## D47 — Rotazione dopo il posizionamento + trait surface allo Switch (2026-09)
+## D47 — Rotazione: registrare la traslazione, non il bbox visivo (2026-09)
 
 Sintomo reale (round-trip Settings-Frame, secondo giro): chevron spariti e
 track blu del toggle mancante (levetta bianca presente).
-Diagnosi: 1) i gruppi chevron hanno rotation:-180 registrata correttamente,
-ma il render la applicava a frame ancora in (0,0): Figma rilegge x/y come
-traslazione del frame ruotato e i nodi finivano spostati di (-w,-h),
-clippati dal root. (Spiega anche il "flip" del primo giro: senza supporto
-rotazione si vedeva l'icona non ruotata "<".) 2) il fill blu e' proprio del
-nodo Switch, che non aveva trait surface/container: entrambi gli importer
-lo scartavano.
-Decisione: rotazione applicata DOPO x/y (ruota sul posto attorno al centro;
-perfetto a 180 gradi, approssimato ad altri angoli). Trait surface allo
+Diagnosi: 1) i gruppi chevron hanno rotation:-180 registrata, ma il frame
+registrato era il bbox VISIVO post-rotazione mentre Figma legge x/y come
+TRASLAZIONE (origine locale): a -180 gradi il nodo finiva spostato di
+(-w,-h), sopra la card. (Nota di onesta': un primo fix sull'ordine di
+assegnazione nel render era un placebo — x/y e rotation toccano parti
+diverse della matrice, l'ordine e' indifferente. Il bug era nei VALORI:
+withGeo ora registra traslazione+dimensioni non ruotate per i nodi ruotati,
+che il render riproduce alla lettera. Lo stesso fix spiega il "flip" del
+primo giro: senza supporto rotazione si vedeva l'icona non ruotata "<".)
+2) il fill blu e' proprio del nodo Switch, che non aveva trait
+surface/container: entrambi gli importer lo scartavano.
+Decisione: withGeo usa node.x/y/width/height per i nodi ruotati (genitore
+non ruotato; caso annidato-ruotato resta limite noto). Trait surface allo
 Switch in catalogo + condizione surface anche nella REST (il plugin
 l'aveva gia'). Neutro per il validatore: nessuna regola chiave su surface.
 

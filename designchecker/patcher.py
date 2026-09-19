@@ -253,6 +253,19 @@ def _context_block(context: str | None) -> str:
             "\"\"\"\n")
 
 
+def _brand_block(screen: dict) -> str:
+    """Brand dello screen (D49): hex letti dal frame, intoccabili."""
+    from .tokens import screen_brand
+    brand = screen_brand(screen)
+    if not brand:
+        return ("BRAND DELLO SCREEN: nessun brand registrato — usa i token "
+                "della lista.\n")
+    lines = "\n".join(f"- {path} → {hex_value} (identita', NON sostituire)"
+                      for path, hex_value in brand.items())
+    return ("BRAND DELLO SCREEN (colori letti dal frame, intoccabili):\n"
+            f"{lines}\n")
+
+
 def _platform_block(platform: str | None) -> str:
     """D39: la piattaforma dichiarata calibra il giudizio del modello."""
     lines = {
@@ -344,18 +357,19 @@ def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = No
         "Regole:\n"
         "- Correggi SOLO le violazioni elencate, non riprogettare.\n"
         "- Non cambiare gli id dei nodi, non rimuovere nodi interi.\n"
-        "- IDENTITA' CROMATICA INVIOLABILE: non cambiare MAI il tema del "
-        "design (dark resta dark, light resta light) ne' il colore di brand. "
-        "Sostituisci un hex con un token SOLO se il valore del token (vedi "
-        "lista) e' cromaticamente equivalente all'hex originale. Se nessun "
-        "token e' equivalente, MANTIENI l'hex originale e segnalalo aggiungendo "
-        "un campo \"note\" all'operazione (es. \"palette-gap: serve un token "
-        "dark per questo colore\"): la violazione restera' aperta, ed e' il "
-        "comportamento corretto — meglio un hex segnalato che un colore "
-        "sbagliato.\n"
+        "- IDENTITA' DI BRAND DELLO SCREEN (D49): i colori brand elencati in "
+        "BRAND DELLO SCREEN sono l'identita' letta dal frame: non mapparli su "
+        "altri token e non introdurre nuovi hex. Il tema resta invariato "
+        "(dark resta dark, light resta light).\n"
+        "- Gli altri hex: sostituiscili con un token SOLO se il valore del "
+        "token (vedi lista) e' cromaticamente equivalente all'hex originale. "
+        "Se nessun token e' equivalente, MANTIENI l'hex originale e segnalalo "
+        "aggiungendo un campo \"note\" all'operazione (es. \"palette-gap: "
+        "serve un token dark per questo colore\"): la violazione restera' "
+        "aperta, ed e' il comportamento corretto — meglio un hex segnalato "
+        "che un colore sbagliato.\n"
         "- Per colori/spaziature usa SOLO token dalla lista TOKEN DISPONIBILI; "
-        "se nessun token e' adatto, usa un valore concreto leggibile "
-        "(es. hex) invece di inventare un riferimento.\n"
+        "mai inventare path, mai hex nuovi (sarebbero nuove violazioni).\n"
         "- Niente testo fuori dal JSON, niente commenti.\n"
         "Se e' presente la sezione CONTESTO DELL'APP, descrive lo scopo del "
         "prodotto: rispettala (non 'correggere' scelte motivate dal contesto).\n"
@@ -364,6 +378,7 @@ def build_fix_prompt(screen: dict, findings: list, token_paths: list | None = No
     user = (
         f"VIOLAZIONI:\n{flist}\n"
         + _context_block(context) + "\n"
+        + _brand_block(screen) + "\n"
         f"REGOLAMENTO COMPLETO DEL VALIDATORE (la patch deve rispettare TUTTE "
         f"queste regole, non solo le violazioni trovate):\n{rules_summary(rules)}\n\n"
         + _token_catalog_block(token_paths, token_values, theme) + "\n\n"

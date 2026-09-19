@@ -500,8 +500,8 @@ class TestBridgeAI(unittest.TestCase):
         self.assertIn("color.surface → #121212", user_msg)
         self.assertNotIn("color.surface → #F7F7F5", user_msg)
         system_msg = next(m["content"] for m in captured[0]
-                          if m["role"] == "system")
-        self.assertIn("IDENTITA' CROMATICA INVIOLABILE", system_msg)
+                           if m["role"] == "system")
+        self.assertIn("IDENTITA' DI BRAND DELLO SCREEN (D49)", system_msg)
 
     def test_review_ritorna_testo(self):
         import designchecker.ai as ai_mod

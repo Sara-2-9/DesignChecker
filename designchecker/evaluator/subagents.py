@@ -74,8 +74,7 @@ Rispondi SOLO con un array JSON di fix, niente testo fuori, max 5 fix MIRATI
 (qualita' sopra quantita': niente riempitivi, solo problemi veri con id nodo visto):
 [{{"node": "<id-nodo-visto>", "key": "style/color|style/background|props/label|layout/gap|a11y/label|...",
    "op": "replace|remove", "value": "...", "why": "<una riga>", "source_url": "<URL dalle fonti o regola id>"}}]
-Usa SOLO token dalla lista TOKEN se cambi colori/spazi (mai inventare path). Identita' cromatica inviolabile: dark resta dark.
-Mai valori hex hard-coded (es. #FFFFFF): sarebbero nuovi errori del validatore. Se nessun token va bene per un nodo, salta il nodo (niente fix e' meglio di un fix che peggiora)."""
+Usa SOLO token dalla lista TOKEN se cambi colori/spazi (mai inventare path). Identita' di brand: i colori in BRAND DELLO SCREEN restano come sono (mai mapparli su altri token, mai nuovi hex). Per gli altri colori, se nessun token va bene per un nodo, salta il nodo (niente fix e' meglio di un fix che peggiora). Identita' cromatica: dark resta dark."""
 
 
 def _slim_node(n: dict) -> dict:

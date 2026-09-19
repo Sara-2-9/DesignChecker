@@ -304,16 +304,35 @@ function strokeInfo(node) {
 }
 
 function withGeo(out, node, bounds, parentBox) {
-  // geometria reale relativa al genitore + id Figma (per clonare immagini/
-  // icone dal nodo sorgente al momento del render, se esiste ancora nel file)
+  // Geometria + id Figma (per clonare immagini/icone dal nodo sorgente).
+  // Nodo NON ruotato: x/y del riquadro visivo relativo al genitore
+  // (bounds - parentBox: per genitori non ruotati e' la traslazione).
+  // Nodo RUOTATO: x/y di Figma sono la TRASLAZIONE (origine locale), mentre
+  // absoluteBoundingBox e' il riquadro visivo post-rotazione. Registrare il
+  // visivo come traslazione sposta il nodo di (-w,-h) a 180 gradi (bug dei
+  // chevron finiti sopra la card): si registrano traslazione e dimensioni
+  // non ruotate del nodo, che il render riproduce alla lettera.
+  // (L'ordine di assegnazione nel render e' irrilevante: x/y toccano solo la
+  // traslazione, rotation solo la sottomatrice 2x2.)
+  const rot = (typeof node.rotation === 'number') ? node.rotation : 0;
   if (bounds && bounds.width != null) {
     out.layout = out.layout || {};
-    out.layout.frame = {
-      x: Math.round(bounds.x - (parentBox ? parentBox.x : bounds.x)),
-      y: Math.round(bounds.y - (parentBox ? parentBox.y : bounds.y)),
-      w: Math.round(bounds.width),
-      h: Math.round(bounds.height),
-    };
+    if (rot !== 0 && parentBox && typeof node.x === 'number' && typeof node.y === 'number' &&
+        typeof node.width === 'number' && typeof node.height === 'number') {
+      out.layout.frame = {
+        x: Math.round(node.x * 100) / 100,
+        y: Math.round(node.y * 100) / 100,
+        w: Math.round(node.width * 100) / 100,
+        h: Math.round(node.height * 100) / 100,
+      };
+    } else {
+      out.layout.frame = {
+        x: Math.round(bounds.x - (parentBox ? parentBox.x : bounds.x)),
+        y: Math.round(bounds.y - (parentBox ? parentBox.y : bounds.y)),
+        w: Math.round(bounds.width),
+        h: Math.round(bounds.height),
+      };
+    }
   }
   // rotazione e opacita' valgono per OGNI tipo di nodo (anche testi e icone):
   // senza, il JSON descrive un oggetto diverso da quello disegnato.
@@ -540,18 +559,61 @@ async function exportPreview(node) {
   } catch (e) { return null; }
 }
 
+function extractBrand(root) {
+  // Brand dello screen = colore saturo piu' "pesante" del frame
+  // (occorrenze + area). Neutri/grigi esclusi per saturazione, gradienti
+  // approssimati esclusi (visual_bg): il brand e' il colore distintivo.
+  // D49: il brand e' un input per-screen letto dal canvas, non piu' il verde
+  // demo congelato — ma resta protetto DENTRO lo screen (mai ricolorato).
+  function sat(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    return (Math.max(r, g, b) - Math.min(r, g, b)) / 255;
+  }
+  const scores = {};
+  function walk(n) {
+    if (!n || typeof n !== 'object') return;
+    const st = n.style || {};
+    const fr = (n.layout || {}).frame || {};
+    const area = (fr.w || 0) * (fr.h || 0);
+    const skip = n.meta && n.meta.visual_bg;
+    const vals = [st.background, st.color, st.border && st.border.color].filter(Boolean);
+    for (const v of vals) {
+      if (typeof v !== 'string' || !v.startsWith('#') || skip) continue;
+      if (sat(v) < 0.15) continue;
+      const key = v.toUpperCase();
+      const s = scores[key] || { n: 0, area: 0 };
+      s.n += 1;
+      s.area += area;
+      scores[key] = s;
+    }
+    for (const c of n.children || []) walk(c);
+  }
+  walk(root);
+  let best = null, bestScore = -1;
+  for (const hex of Object.keys(scores)) {
+    const s = scores[hex];
+    const score = s.n * 1000 + Math.min(s.area, 1000000);
+    if (score > bestScore) { bestScore = score; best = hex; }
+  }
+  return best;
+}
+
 function exportFrame(node) {
   exportMap = {};
   USED_IDS = {};
   pendingAssets = [];
   const root = convertNode(node, true, node.absoluteBoundingBox);
+  const meta = {
+    id: kebab(node.name), name: node.name + ' (import plugin Figma)',
+    route: '/' + kebab(node.name), status: 'draft',
+    source: { kind: 'figma-plugin', confidence: root.meta.confidence },
+  };
+  const brand = extractBrand(root);
+  if (brand) meta.brand = { 'color.brand.primary': brand };
   return {
     schema_version: '0.1.0',
-    meta: {
-      id: kebab(node.name), name: node.name + ' (import plugin Figma)',
-      route: '/' + kebab(node.name), status: 'draft',
-      source: { kind: 'figma-plugin', confidence: root.meta.confidence },
-    },
+    meta: meta,
     root: root,
   };
 }
@@ -989,7 +1051,7 @@ async function renderNodeFaithful(node, parent) {
     try {
       if (f && t.width > f.w) { t.resize(Math.ceil(t.width), Math.max(t.height, 1)); }
     } catch (e) { /* ok */ }
-    applyVisualStyle(t, node); // DOPO il posizionamento (stesso motivo dei container)
+    applyVisualStyle(t, node); // stili visivi (v. nota sui container)
     return;
   }
 
@@ -1055,10 +1117,10 @@ async function renderNodeFaithful(node, parent) {
   if (f) frame.resize(Math.max(f.w, 1), Math.max(f.h, 1));
   parent.appendChild(frame);
   if (f) { frame.x = f.x; frame.y = f.y; }
-  // La rotazione va applicata DOPO il posizionamento: ruota sul posto attorno
-  // al centro. Prima si impostava a frame ancora in (0,0) e Figma rileggeva
-  // x/y come traslazione del frame ruotato: i chevron a -180 finivano spostati
-  // di (-w,-h) e sparivano (clippati dal root).
+  // Stili visivi DOPO geometria (solo ordine di scrittura: x/y e rotation
+  // toccano parti diverse della matrice, quindi l'ordine e' indifferente).
+  // La correttezza per i nodi ruotati sta nei VALORI registrati da withGeo
+  // (traslazione, non bbox visivo), non qui.
   applyVisualStyle(frame, node);
   if (!isEllipse) {
     for (const child of kids) {

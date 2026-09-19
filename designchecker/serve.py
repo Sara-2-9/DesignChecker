@@ -210,8 +210,8 @@ class Bridge:
                             platform=platform, theme=theme)
         # catalogo path -> valore NEL TEMA ATTIVO: il modello vede i colori
         # veri (dark su design dark) e non puo' vandalizzare l'identita' (D42)
-        token_values = {path: self.tokens.resolve_path(path, theme)
-                        for path in self.tokens.flat}
+        from .tokens import effective_token_values as _etv
+        token_values = _etv(self.tokens, theme, screen)
 
         def validate_fn(scr):
             fs = validate(scr, self.rules, self.tokens, self.catalog,
@@ -349,6 +349,10 @@ class Bridge:
                   f"piattaforma: {platform}, tema: {theme} — "
                   f"validatore: {result['errors']} errori, "
                   f"{len(result['findings']) - result['errors']} warning")
+        _brand = (screen.get("meta", {}) or {}).get("brand")
+        if isinstance(_brand, dict) and _brand:
+            self._log(f"  brand del frame: "
+                      + ", ".join(f"{k} → {v}" for k, v in _brand.items()))
 
         # Asset (D34): PNG esportati dal plugin (immagini/icone reali).
         # Path sanitizzato (solo basename) — mai scrivere fuori da imports/assets/.
@@ -526,8 +530,8 @@ class Bridge:
         _emit(f"baseline deterministica: {base['errors']} errori, "
               f"{len(base['findings']) - base['errors']} warning (parere, non verita')")
 
-        token_values = {path: self.tokens.resolve_path(path, theme)
-                        for path in self.tokens.flat}
+        from .tokens import effective_token_values as _etv
+        token_values = _etv(self.tokens, theme, screen)
 
         def chat_fn(messages):
             # --verbose: prompt e risposte completi anche per /propose,

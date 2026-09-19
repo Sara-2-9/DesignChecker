@@ -99,7 +99,10 @@ class Codegen:
     def _theme_tree(self) -> dict:
         """Token DTCG -> albero con valori risolti (alias compresi) NEL TEMA
         dello screen (meta.theme): un design dark genera una theme.ts scura.
-        Il gruppo 'color' diventa 'colors' per allinearsi a _ts_path."""
+        Il gruppo 'color' diventa 'colors' per allinearsi a _ts_path.
+        D49: il brand registrato dello screen (meta.brand) sovrascrive il
+        default di tokens.json — l'app generata usa i colori del frame."""
+        from .tokens import screen_brand
         theme = (self.screen.get("meta", {}) or {}).get("theme", "light")
         out: dict = {}
         for path in self.tokens.flat:
@@ -112,6 +115,14 @@ class Codegen:
                 node = node.setdefault(part, {})
             num = dimension_to_float(value)
             node[parts[-1]] = num if num is not None and not str(value).startswith("#") else value
+        for path, hex_value in screen_brand(self.screen).items():
+            parts = path.split(".")
+            if parts[0] == "color":
+                parts[0] = "colors"
+            node = out
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            node[parts[-1]] = hex_value
         return out
 
     def theme_ts(self) -> str:

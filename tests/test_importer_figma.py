@@ -241,6 +241,43 @@ class TestFedeltaVisiva(unittest.TestCase):
         self.assertEqual(out["type"], "Switch")
         self.assertIn("background", out.get("style", {}))
 
+    def test_brand_estratto_dal_frame(self):
+        """D49: il colore saturo dominante diventa meta.brand."""
+        from designchecker.importer_figma import _extract_brand
+        root = {"id": "r", "type": "Screen",
+                "layout": {"frame": {"x": 0, "y": 0, "w": 402, "h": 874}},
+                "children": [
+                    {"id": "bg", "type": "Stack",
+                     "layout": {"frame": {"x": 0, "y": 0, "w": 402, "h": 874}},
+                     "style": {"background": "#000000"}},
+                    {"id": "cta", "type": "Stack",
+                     "layout": {"frame": {"x": 0, "y": 0, "w": 148, "h": 38}},
+                     "style": {"background": "#0088FF"}}]}
+        self.assertEqual(_extract_brand(root), "#0088FF")
+
+    def test_brand_assente_su_design_neutro(self):
+        from designchecker.importer_figma import _extract_brand
+        root = {"id": "r", "type": "Screen",
+                "children": [{"id": "bg", "type": "Stack",
+                              "layout": {"frame": {"x": 0, "y": 0,
+                                                  "w": 10, "h": 10}},
+                              "style": {"background": "#202020"}}]}
+        self.assertIsNone(_extract_brand(root))
+
+    def test_convert_screen_registra_brand(self):
+        doc = {"children": [{"name": "P", "children": [
+            {"name": "Pay", "type": "FRAME", "children": [
+                {"name": "CTA", "type": "RECTANGLE",
+                 "absoluteBoundingBox": {"x": 0, "y": 0,
+                                         "width": 148, "height": 38},
+                 "fills": [{"type": "SOLID", "visible": True,
+                            "color": {"r": 0, "g": 0.5333333333333333,
+                                      "b": 1}}]},
+            ]}]}]}
+        scr = self.importer.convert_screen(doc, "Pay")
+        self.assertEqual(scr["meta"]["brand"],
+                         {"color.brand.primary": "#0088FF"})
+
     def test_testo_metriche_reali(self):
         node = {"type": "TEXT", "name": "Title", "characters": "Ciao",
                 "style": {"fontSize": 17, "fontFamily": "SF Pro",

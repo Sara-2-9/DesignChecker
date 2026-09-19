@@ -288,7 +288,8 @@ def _evaluator_command(args, root: Path, rules) -> None:
     platform = args.platform or (screen.get("meta", {}) or {}).get("platform") or "both"
     theme = resolve_theme(screen, tokens)
     findings = validate(screen, rules, tokens, catalog, platform=platform, theme=theme)
-    token_values = {path: tokens.resolve_path(path, theme) for path in tokens.flat}
+    from .tokens import effective_token_values as _etv
+    token_values = _etv(tokens, theme, screen)
     baseline = not getattr(args, "no_baseline", False)
     print(f"── Propose padre+figli ({p.label} · {model} · {platform} · tema {theme}) ──")
     print(f"Baseline validatore: {len([f for f in findings if f.severity=='error'])} errori, "
@@ -838,8 +839,8 @@ def _ai_screen_command(args, root: Path, rules) -> None:
     findings = validate(screen, rules, tokens, catalog,
                         platform=platform, theme=theme)
     # catalogo path -> valore nel tema attivo per il prompt di fix (D42)
-    token_values = {path: tokens.resolve_path(path, theme)
-                    for path in tokens.flat}
+    from .tokens import effective_token_values as _etv
+    token_values = _etv(tokens, theme, screen)
 
     def chat_fn(messages):
         return _ai.chat(p, model, messages, config)

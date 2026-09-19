@@ -408,3 +408,12 @@ class TestCodegenTheme(unittest.TestCase):
         # il brand non cambia mai tema
         self.assertIn('"primary": "#5E8F6E"', dark_ts)
         self.assertIn('"primary": "#5E8F6E"', light_ts)
+
+    def test_theme_ts_usa_brand_dello_screen(self):
+        """D49: meta.brand sovrascrive il default demo in theme.ts."""
+        tokens, catalog = self._tokens_catalog()
+        scr = self._screen("dark")
+        scr["meta"]["brand"] = {"color.brand.primary": "#0088FF"}
+        ts = Codegen(scr, tokens, catalog).theme_ts()
+        self.assertIn('"primary": "#0088FF"', ts)
+        self.assertNotIn("#5E8F6E", ts)
