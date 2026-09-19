@@ -433,14 +433,10 @@ class TestBridgeAI(unittest.TestCase):
         return ai.Provider("ollama", "Ollama", "A", "openai",
                            "http://localhost:11434/v1"), "qwen3:8b"
 
-    def test_review_e_fix_richiedono_config(self):
-        import designchecker.serve as serve_mod
+    def test_describe_richiede_config(self):
         orig = Bridge._ai_provider
         Bridge._ai_provider = lambda self: (None, None, {})
         try:
-            screen = load_screen(ROOT / "examples" / "imported-home.screen.json")
-            self.assertIn("error", self.bridge.ai_review(screen))
-            self.assertIn("error", self.bridge.ai_fix(screen))
             self.assertIn("error", self.bridge.ai_describe("QUJD"))
         finally:
             Bridge._ai_provider = orig
@@ -477,81 +473,6 @@ class TestBridgeAI(unittest.TestCase):
             Bridge._ai_provider = orig_provider
             ai_mod.supports_vision = orig_vision
 
-    def test_fix_applica_patch_e_salva(self):
-        import designchecker.ai as ai_mod
-        p, model = self._fake_provider()
-        patch = [{"op": "replace", "path": "/root/style/background",
-                  "value": "token:color.bg.primary"}]
-        orig_provider = Bridge._ai_provider
-        orig_chat = ai_mod.chat
-        Bridge._ai_provider = lambda self: (p, model, {})
-        ai_mod.chat = lambda *a, **k: json.dumps(patch)
-        try:
-            screen = load_screen(ROOT / "examples" / "imported-home.screen.json")
-            before_errors = self.bridge.validate_screen(screen)["errors"]
-            result = self.bridge.ai_fix(screen)
-            self.assertTrue(result.get("applied"), result.get("log"))
-            self.assertEqual(result["ops"], patch)
-            self.assertEqual(result["screen"]["root"]["style"]["background"],
-                             "token:color.bg.primary")
-            after_errors = self.bridge.validate_screen(result["screen"])["errors"]
-            self.assertLess(after_errors, before_errors)
-        finally:
-            Bridge._ai_provider = orig_provider
-            ai_mod.chat = orig_chat
-
-    def test_fix_prompt_dark_mostra_valori_scuri(self):
-        """D42: su uno screen dark il prompt elenca i token coi valori DARK
-        (color.surface → #121212), cosi' il modello non puo' scambiare
-        il nero per il panna chiaro."""
-        import designchecker.ai as ai_mod
-        p, model = self._fake_provider()
-        captured: list = []
-        orig_provider = Bridge._ai_provider
-        orig_chat = ai_mod.chat
-        Bridge._ai_provider = lambda self: (p, model, {})
-
-        def fake_chat(*a, **k):
-            if len(a) >= 3:
-                captured.append(a[2])
-            return "questa non e' una patch"  # patch invalida: nessuna scrittura
-
-        ai_mod.chat = fake_chat
-        try:
-            screen = {"schema_version": "0.1",
-                      "meta": {"id": "t", "theme": "dark"},
-                      "root": {"id": "r", "type": "Screen",
-                               "style": {"background": "#000000"},
-                               "children": [{"id": "t1", "type": "Text",
-                                             "style": {"color": "#FF0000"}}]}}
-            self.bridge.ai_fix(screen)
-        finally:
-            Bridge._ai_provider = orig_provider
-            ai_mod.chat = orig_chat
-        self.assertTrue(captured, "il modello non e' mai stato chiamato")
-        user_msg = next(m["content"] for m in captured[0] if m["role"] == "user")
-        self.assertIn("color.surface → #121212", user_msg)
-        self.assertNotIn("color.surface → #F7F7F5", user_msg)
-        system_msg = next(m["content"] for m in captured[0]
-                           if m["role"] == "system")
-        self.assertIn("IDENTITA' DI BRAND DELLO SCREEN (D49)", system_msg)
-
-    def test_review_ritorna_testo(self):
-        import designchecker.ai as ai_mod
-        p, model = self._fake_provider()
-        orig_provider = Bridge._ai_provider
-        orig_chat = ai_mod.chat
-        Bridge._ai_provider = lambda self: (p, model, {})
-        ai_mod.chat = lambda *a, **k: "Gerarchia ok, aumenta il respiro sotto il titolo."
-        try:
-            screen = load_screen(ROOT / "examples" / "home.screen.json")
-            result = self.bridge.ai_review(screen)
-            self.assertIn("Gerarchia", result.get("critique", ""))
-        finally:
-            Bridge._ai_provider = orig_provider
-            ai_mod.chat = orig_chat
-
-
 class TestBridgeVerboseAI(unittest.TestCase):
     """D38: --verbose mostra nel log il prompt completo e la risposta grezza."""
 
@@ -560,7 +481,7 @@ class TestBridgeVerboseAI(unittest.TestCase):
         return ai.Provider("ollama", "Ollama", "A", "openai",
                            "http://localhost:11434/v1"), "qwen3:8b"
 
-    def _run_review(self, verbose: bool) -> str:
+    def _run_describe(self, verbose: bool) -> str:
         import io
         from contextlib import redirect_stdout
         import designchecker.ai as ai_mod
@@ -568,56 +489,29 @@ class TestBridgeVerboseAI(unittest.TestCase):
         orig_provider = Bridge._ai_provider
         orig_chat = ai_mod.chat
         Bridge._ai_provider = lambda self: (p, model, {})
-        ai_mod.chat = lambda *a, **k: "PARERE-DEL-MODELLO: gerarchia ok."
+        ai_mod.chat = lambda *a, **k: "SCHEDA-MODELLO: dark pulito."
         buf = io.StringIO()
         try:
             with redirect_stdout(buf):
-                screen = load_screen(ROOT / "examples" / "home.screen.json")
-                Bridge(ROOT, verbose_ai=verbose).ai_review(screen)
+                Bridge(ROOT, verbose_ai=verbose).ai_describe("QUJD")
         finally:
             Bridge._ai_provider = orig_provider
             ai_mod.chat = orig_chat
         return buf.getvalue()
 
     def test_verbose_mostra_prompt_e_risposta(self):
-        out = self._run_review(verbose=True)
+        out = self._run_describe(verbose=True)
         self.assertIn("PROMPT → AI [system]", out)
         self.assertIn("PROMPT → AI [user]", out)
         self.assertIn("RISPOSTA ← AI", out)
-        self.assertIn("PARERE-DEL-MODELLO", out)
-        self.assertIn("SCREEN JSON", out)  # il prompt contiene davvero lo screen
+        self.assertIn("SCHEDA-MODELLO", out)
+        self.assertIn("PNG del frame allegato", out)
 
     def test_default_non_mostra_prompt(self):
-        out = self._run_review(verbose=False)
-        self.assertIn("/review", out)          # la riga di riepilogo resta
-        self.assertNotIn("PROMPT → AI", out)   # ma niente dump completo
-        self.assertNotIn("PARERE-DEL-MODELLO", out)
-
-    def test_fix_verbose_mostra_patch_grezza(self):
-        import io
-        import json as _json
-        from contextlib import redirect_stdout
-        import designchecker.ai as ai_mod
-        p, model = self._fake_provider()
-        patch = [{"op": "replace", "path": "/root/style/background",
-                  "value": "token:color.bg.primary"}]
-        orig_provider = Bridge._ai_provider
-        orig_chat = ai_mod.chat
-        Bridge._ai_provider = lambda self: (p, model, {})
-        ai_mod.chat = lambda *a, **k: _json.dumps(patch)
-        buf = io.StringIO()
-        try:
-            with redirect_stdout(buf):
-                screen = load_screen(ROOT / "examples" / "imported-home.screen.json")
-                result = Bridge(ROOT, verbose_ai=True).ai_fix(screen)
-        finally:
-            Bridge._ai_provider = orig_provider
-            ai_mod.chat = orig_chat
-        out = buf.getvalue()
-        self.assertTrue(result.get("applied"), result.get("log"))
-        self.assertIn("PROMPT → AI [system]", out)
-        self.assertIn("RISPOSTA ← AI (patch grezza)", out)
-        self.assertIn("/root/style/background", out)  # la patch grezza e' nel log
+        out = self._run_describe(verbose=False)
+        self.assertIn("/describe", out)          # la riga di riepilogo resta
+        self.assertNotIn("PROMPT → AI", out)     # ma niente dump completo
+        self.assertNotIn("SCHEDA-MODELLO", out)
 
 
 class TestBridgeTheme(unittest.TestCase):

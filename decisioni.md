@@ -539,3 +539,14 @@ esatti, mai misure in pixel, mai inventare testi illeggibili o stati.
 Non tocca JSON, non valida: artefatto leggibile (brief, doc design system,
 DNA da allegare alle proposte). Richiede modello con vision, altrimenti
 errore esplicito.
+
+## D51 — Rimossi review/fix, describe anche in XL (2026-09)
+
+Decisione di strada (non tecnica): i bottoni "Valuta il design" e "Correggi
+con AI" lasciano il posto alle schede di stile. Rimossi dal plugin e, in
+profondita', dal codice: endpoint /review e /fix, ai_review/ai_fix,
+comandi dck, build_fix/review_prompt, fix_loop e relativi helper/test.
+Restano: validatore, gate e flusso padre+figli (propose), describe short
+(+ opzione XL: analisi per zona, prompt dedicato) da CLI e da plugin con
+bottone proprio. README aggiornato; decisioni D31/D35 restano agli atti
+come storia.

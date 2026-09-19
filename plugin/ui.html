@@ -89,9 +89,8 @@
   <hr>
   <div class="section">AI <span id="ai-model" style="color:#666;text-transform:none"></span></div>
   <div class="row">
-    <button id="btn-review" class="secondary" disabled>Valuta il design</button>
-    <button id="btn-fix" class="secondary" disabled>Correggi con AI</button>
     <button id="btn-describe" class="secondary" disabled>dck describe</button>
+    <button id="btn-describe-xl" class="secondary" disabled>dck describe XL</button>
   </div>
   <div class="row">
     <button id="btn-propose" class="secondary" disabled>Proponi nuovo design (padre+figli)</button>
@@ -144,10 +143,9 @@ async function boot() {
     $('btn-render').disabled = false;
     if (health.ai && health.ai.configured) {
       $('ai-model').textContent = '· ' + health.ai.label + ' ' + health.ai.model;
-      $('btn-review').disabled = false;
-      $('btn-fix').disabled = false;
       $('btn-propose').disabled = false;
       $('btn-describe').disabled = false;
+      $('btn-describe-xl').disabled = false;
     } else {
       $('ai-model').textContent = '· non configurata (dck ai)';
     }
@@ -228,98 +226,15 @@ function aiOut(html) { $('ai-out').innerHTML = html; }
 
 function setAiBusy(busy, label) {
   aiBusy = busy;
-  $('btn-review').disabled = busy;
-  $('btn-fix').disabled = busy;
   $('btn-propose').disabled = busy;
   $('btn-describe').disabled = busy;
+  $('btn-describe-xl').disabled = busy;
   if (label) $('status').textContent = label;
 }
 
 function proposePhases(lines) {
   aiOut(lines.map((l) => '<div class="logline">' + l.replace(/</g, '&lt;') + '</div>').join(''));
 }
-
-// I bottoni AI lavorano su lastScreen: se il plugin e' appena stato riaperto
-// la memoria e' vuota — prova a caricare lo screen dal campo id, altrimenti
-// spiega cosa fare (mai un click silenzioso).
-async function ensureScreen() {
-  if (lastScreen) return true;
-  const id = $('screen-id').value.trim();
-  if (id) {
-    try {
-      lastScreen = await bridge('/screen/' + encodeURIComponent(id));
-      if (lastScreen.meta && lastScreen.meta.platform) {
-        $('platform').value = lastScreen.meta.platform;  // D39: eredita la piattaforma dichiarata
-      }
-      if (lastScreen.meta && lastScreen.meta.theme) {
-        $('theme').value = lastScreen.meta.theme;  // D40: eredita il tema rilevato/dichiarato
-      }
-      $('status').textContent = 'screen "' + id + '" caricato dal bridge';
-      return true;
-    } catch (e) { /* cade nel messaggio sotto */ }
-  }
-  $('status').textContent = 'prima esporta e valida una selezione (o scrivi l\'id della schermata nel campo Render e riprova)';
-  return false;
-}
-
-$('btn-review').onclick = async () => {
-  if (aiBusy) return;
-  if (!(await ensureScreen())) return;
-  setAiBusy(true, 'valutazione AI in corso…');
-  aiOut('');
-  try {
-    const data = await bridge('/review', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined,
-                             platform: $('platform').value,
-                             theme: $('theme').value }),
-    });
-    if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
-    else {
-      aiOut('<div class="critique">' + data.critique.replace(/</g, '&lt;') + '</div>');
-      $('status').textContent = 'valutazione pronta (consultiva: il validatore resta l\'arbitro)';
-    }
-  } catch (e) {
-    $('status').textContent = 'bridge irraggiungibile durante la valutazione';
-  }
-  setAiBusy(false);
-};
-
-$('btn-fix').onclick = async () => {  if (aiBusy) return;  if (!(await ensureScreen())) return;
-  setAiBusy(true, 'fix AI in corso: il validatore fara\' da gatekeeper…');
-  aiOut('');
-  try {
-    const data = await bridge('/fix', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ screen: lastScreen, context: $('ai-context').value.trim() || undefined,
-                             platform: $('platform').value,
-                             theme: $('theme').value }),
-    });
-    if (data.error) { aiOut('<div class="finding error"><div>' + data.error + '</div></div>'); }
-    else {
-      aiOut((data.log || []).map((l) => '<div class="logline">' + l.replace(/</g, '&lt;') + '</div>').join('') +
-        (data.applied
-          ? '<div class="ok">✓ Patch applicata e salvata — renderizzo la versione corretta</div>'
-          : '<div class="finding warning"><div>Nessuna patch accettabile: file invariato</div></div>'));
-      if (data.applied && data.screen) {
-        $('status').textContent = 'fix applicato';
-        appStatus(data.app);
-        lastScreen = data.screen;
-        renderFindings(await bridge('/validate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ screen: data.screen, platform: $('platform').value }),
-        }));
-        parent.postMessage({ pluginMessage: { type: 'render', screen: data.screen } }, '*');
-      }
-    }
-  } catch (e) {
-    $('status').textContent = 'bridge irraggiungibile durante il fix';
-  }
-  setAiBusy(false);
-};
 
 // Flusso Proponi nuovo design: export con preview PNG -> POST /propose?stream=1
 // con fasi live (stessi testi della console bridge) -> render proposta come
@@ -333,22 +248,33 @@ $('btn-propose').onclick = async () => {
   parent.postMessage({ pluginMessage: { type: 'export-propose' } }, '*');
 };
 
-// dck describe: PNG del frame selezionato -> POST /describe -> scheda stile.
+// dck describe (short + XL): PNG del frame selezionato -> POST /describe.
+// pendingDetail ricorda quale bottone ha avviato il giro.
+let pendingDetail = 'short';
 $('btn-describe').onclick = async () => {
   if (aiBusy) return;
+  pendingDetail = 'short';
   setAiBusy(true, 'descrivo lo stile dal frame…');
   aiOut('');
   parent.postMessage({ pluginMessage: { type: 'export-describe' } }, '*');
 };
+$('btn-describe-xl').onclick = async () => {
+  if (aiBusy) return;
+  pendingDetail = 'full';
+  setAiBusy(true, 'descrivo lo stile dal frame (analisi XL)…');
+  aiOut('');
+  parent.postMessage({ pluginMessage: { type: 'export-describe' } }, '*');
+};
 
-async function describeWithPreview(preview_base64) {
+async function describeWithPreview(preview_base64, detail) {
   try {
     const data = await bridge('/describe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ preview_base64,
                              context: $('ai-context').value.trim() || undefined,
-                             platform: $('platform').value }),
+                             platform: $('platform').value,
+                             detail: detail || 'short' }),
     });
     if (data.error) {
       aiOut('<div class="finding error"><div>' + data.error + '</div></div>');
@@ -493,7 +419,7 @@ window.onmessage = async (event) => {
   }
   if (msg.type === 'describe-exported') {
     try {
-      await describeWithPreview(msg.preview_base64);
+      await describeWithPreview(msg.preview_base64, pendingDetail);
     } catch (e) {
       $('status').textContent = 'bridge irraggiungibile durante describe';
       setAiBusy(false);

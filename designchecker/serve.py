@@ -12,8 +12,9 @@ Endpoint:
   POST /validate       -> body: screen JSON; ritorna {"findings": [...], "errors": n}
   POST /import         -> come /validate + salva in imports/<id>.screen.json
   GET  /screen/<id>    -> screen JSON da imports/ (per il render su canvas)
-  POST /review         -> body: screen JSON; ritorna {"critique": "..."} (D31)
-  POST /fix            -> body: screen JSON; patch AI gated dal validatore (D31)
+  POST /describe       -> body: PNG preview; ritorna {"text": "..."} (scheda stile)
+  POST /evaluate       -> body: screen JSON; ritorna {"role": ...} (solo ruolo/scopo)
+  POST /propose        -> padre+figli -> gate validatore (D44)
 
 Sicurezza: ascolta solo su loopback; nessuna scrittura fuori da imports/.
 Le chiamate AI escono solo verso il provider scelto dall'utente in `dck ai`;
@@ -132,7 +133,7 @@ class Bridge:
             return False
 
     def _autogen_app(self, screen: dict) -> dict | None:
-        """Rigenera il progetto Expo dopo ogni import/fix (D36): l'utente non
+        """Rigenera il progetto Expo dopo ogni import/proposta accettata (D36): l'utente non
         tocca piu' il terminale. La cartella e' protetta da un marker: se
         esiste, e' piena e NON e' stata creata da noi, ci rifiutiamo di
         sovrascrivere (mai distruggere lavoro altrui)."""
@@ -159,44 +160,11 @@ class Bridge:
             return {"ok": False, "path": str(self.autogen),
                     "error": str(e)[:200]}
 
-    def ai_review(self, screen: dict, context: str | None = None,
-                  platform: str | None = None,
-                  theme: str | None = None) -> dict:
-        """Valutazione qualitativa consultiva (D31), con contesto opzionale (D35)
-        e piattaforma dichiarata (D39)."""
-        from . import ai as _ai
-        from . import patcher
-        p, model, config = self._ai_provider()
-        if p is None:
-            return {"error": "Provider AI non configurato: lancia `dck ai`"}
-        platform = self._resolve_platform(screen, platform)
-        theme = resolve_theme(screen, self.tokens, theme)
-        applicable = rules_for_platform(self.rules, platform)
-        findings = validate(screen, self.rules, self.tokens, self.catalog,
-                            platform=platform, theme=theme)
-        messages = patcher.build_review_prompt(screen, findings, context=context,
-                                               rules=applicable, platform=platform,
-                                               theme=theme)
-        self._log(f"→ /review [{platform}]: {p.label} · {model} — mando screen JSON, "
-                  f"{len(findings)} finding, regolamento {platform}"
-                  f"{' + contesto utente' if context else ''}")
-        for m in messages:
-            self._log_block(f"PROMPT → AI [{m['role']}]", m["content"])
-        t0 = time.monotonic()
-        try:
-            critique = _ai.chat(p, model, messages, config).strip()
-            self._log_block("RISPOSTA ← AI (parere)", critique)
-            self._log(f"  ✓ parere ricevuto in {time.monotonic() - t0:.1f}s "
-                      f"({len(critique)} caratteri) — nessuna scrittura, e' consultivo")
-            return {"critique": critique}
-        except Exception as e:
-            self._log(f"  ✗ provider irraggiungibile: {e}")
-            return {"error": f"Il provider non risponde: {e}"}
-
     def ai_describe(self, preview_base64: str | None,
                       context: str | None = None,
-                      platform: str | None = None) -> dict:
-        """Scheda di stile da un PNG (bottone 'dck describe' nel plugin).
+                      platform: str | None = None,
+                      detail: str = "short") -> dict:
+        """Scheda di stile da un PNG (bottoni describe nel plugin).
         Consultiva: non tocca JSON, non valida, non scrive file."""
         from . import ai as _ai
         from .describer import build_describe_messages, describe_image
@@ -205,12 +173,15 @@ class Bridge:
             return {"error": "Provider AI non configurato: lancia `dck ai`"}
         if not preview_base64:
             return {"error": "Nessuna anteprima: seleziona un frame sul canvas"}
+        if detail not in ("short", "full"):
+            detail = "short"
         if not _ai.supports_vision(p, model):
             return {"error": f"Il modello {model} non ha vision: cambialo con `dck ai`"}
-        self._log(f"→ /describe [{platform or 'both'}]: {p.label} · {model} — "
+        self._log(f"→ /describe [{platform or 'both'} · {detail}]: {p.label} · {model} — "
                   f"scheda di stile dal PNG"
                   f"{' + contesto utente' if context else ''}")
-        for m in build_describe_messages(preview_base64, context, platform):
+        for m in build_describe_messages(preview_base64, context, platform,
+                                         detail=detail):
             content = m.get("content", "")
             if isinstance(content, list):
                 content = "\n".join(p.get("text", "") for p in content
@@ -220,7 +191,8 @@ class Bridge:
         t0 = time.monotonic()
         try:
             result = describe_image(lambda ms: _ai.chat(p, model, ms, config),
-                                    preview_base64, context, platform)
+                                    preview_base64, context, platform,
+                                    detail=detail)
             text = result["text"].strip()
             self._log_block("RISPOSTA ← AI (scheda stile)", text)
             self._log(f"  ✓ scheda ricevuta in {time.monotonic() - t0:.1f}s "
@@ -229,82 +201,6 @@ class Bridge:
         except Exception as e:
             self._log(f"  ✗ provider irraggiungibile: {e}")
             return {"error": f"Il provider non risponde: {e}"}
-
-    def ai_fix(self, screen: dict, context: str | None = None,
-               platform: str | None = None,
-               theme: str | None = None) -> dict:
-        """Patch AI gated dal validatore (D31/D35), con piattaforma (D39).
-        Se accettata, salva in imports/ e rigenera il progetto Expo (D36)."""
-        from . import ai as _ai
-        from . import patcher
-        p, model, config = self._ai_provider()
-        if p is None:
-            return {"error": "Provider AI non configurato: lancia `dck ai`"}
-        platform = self._resolve_platform(screen, platform)
-        theme = resolve_theme(screen, self.tokens, theme)
-        applicable = rules_for_platform(self.rules, platform)
-        findings = validate(screen, self.rules, self.tokens, self.catalog,
-                            platform=platform, theme=theme)
-        # catalogo path -> valore NEL TEMA ATTIVO: il modello vede i colori
-        # veri (dark su design dark) e non puo' vandalizzare l'identita' (D42)
-        from .tokens import effective_token_values as _etv
-        token_values = _etv(self.tokens, theme, screen)
-
-        def validate_fn(scr):
-            fs = validate(scr, self.rules, self.tokens, self.catalog,
-                          platform=platform, theme=theme)
-            return [f for f in fs if f.severity == "error"], \
-                   [f for f in fs if f.severity == "warning"]
-
-        logged_count = [0]  # messaggi gia' stampati (la conversazione cresce a ogni tentativo)
-
-        def chat_fn(messages):
-            if self.verbose_ai:
-                for m in messages[logged_count[0]:]:
-                    self._log_block(f"PROMPT → AI [{m['role']}]", m["content"])
-                logged_count[0] = len(messages)
-            raw = _ai.chat(p, model, messages, config)
-            self._log_block("RISPOSTA ← AI (patch grezza)", raw)
-            return raw
-
-        self._log(f"→ /fix [{platform}]: {p.label} · {model} — il validatore fara' da "
-                  f"gatekeeper sulla patch"
-                  f"{' (contesto utente attivo)' if context else ''}")
-        t0 = time.monotonic()
-        try:
-            result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
-                                      token_paths=list(self.tokens.flat),
-                                      token_values=token_values,
-                                      context=context, rules=applicable,
-                                      platform=platform, theme=theme)
-        except Exception as e:
-            self._log(f"  ✗ provider irraggiungibile: {e}")
-            return {"error": f"Il provider non risponde: {e}"}
-        for line in result.get("log", []):
-            self._log(f"  {line}")
-        self._log(f"  fix terminato in {time.monotonic() - t0:.1f}s — "
-                  f"{'APPLICATO' if result['applied'] else 'NESSUNA PATCH ACCETTATA'}")
-        if result["applied"]:
-            out_dir = self.root / "imports"
-            out_dir.mkdir(exist_ok=True)
-            screen_id = result["screen"].get("meta", {}).get("id", "screen")
-            out_path = out_dir / f"{screen_id}.screen.json"
-            out_path.write_text(json.dumps(result["screen"], indent=2,
-                                           ensure_ascii=False), encoding="utf-8")
-            result["path"] = str(out_path)
-            self._log(f"  scritto imports/{screen_id}.screen.json "
-                      f"(versione corretta)")
-            app = self._autogen_app(result["screen"])
-            if app:
-                result["app"] = app
-                if app["ok"]:
-                    self._log(f"  autogen: {app['files']} file rigenerati in "
-                              f"{app['path']} · Metro: "
-                              f"{'attivo' if app['metro'] else 'non attivo'}")
-                else:
-                    self._log(f"  autogen FERMO: {app['error']}")
-        return result
-
 
     def catalog_payload(self) -> dict:
         return self.catalog
@@ -366,7 +262,7 @@ class Bridge:
                       platform: str | None = None,
                       theme: str | None = None) -> dict:
         # D39/D40: piattaforma e tema scelti nel plugin diventano parte del
-        # contratto (meta) — review/fix/trace/codegen li ereditano da qui.
+        # contratto (meta) — trace/propose/codegen li ereditano da qui.
         platform = self._resolve_platform(screen, platform)
         screen.setdefault("meta", {})["platform"] = platform
         # theme "auto" (o assente) -> rilevamento deterministico dalla
@@ -761,16 +657,11 @@ def make_handler(bridge: Bridge):
             elif self.path == "/import":
                 self._send(200, bridge.import_screen(screen, assets=payload.get("assets"),
                                                      platform=platform, theme=theme))
-            elif self.path == "/review":
-                self._send(200, bridge.ai_review(screen, context=payload.get("context"),
-                                                 platform=platform, theme=theme))
             elif self.path == "/describe":
                 self._send(200, bridge.ai_describe(
                     payload.get("preview_base64"), context=payload.get("context"),
-                    platform=payload.get("platform")))
-            elif self.path == "/fix":
-                self._send(200, bridge.ai_fix(screen, context=payload.get("context"),
-                                              platform=platform, theme=theme))
+                    platform=payload.get("platform"),
+                    detail=payload.get("detail", "short")))
             elif self.path == "/client-log":
                 # eventi lato Figma (selezione frame, D43): solo log, nessuna scrittura
                 self._send(200, bridge.client_log(payload.get("message", "")))
@@ -859,12 +750,12 @@ def serve(root: Path, port: int = DEFAULT_PORT, autogen: Path | None = None,
               "cosa valida, cosa scrive, cosa manda all'AI (--quiet per spegnerlo)")
     if verbose_ai:
         print("Verbose AI attivo: vedrai il PROMPT completo inviato al modello "
-              "e la RISPOSTA grezza che torna, per ogni /review, /fix e /propose")
+              "e la RISPOSTA grezza che torna, per ogni /describe e /propose")
     elif log:
         print("  (vuoi vedere anche prompt e risposte AI completi? "
               "riavvia con --verbose)")
     if autogen:
-        print(f"Autogen attivo: ogni export/fix rigenera l'app in {bridge.autogen}")
+        print(f"Autogen attivo: ogni export/proposta accettata rigenera l'app in {bridge.autogen}")
         print("  (Metro attivo? l'app nel simulatore si aggiorna da sola. "
               "Altrimenti, solo la prima volta: cd <cartella> && npm install && npx expo start)")
     print("Il plugin Figma ora parla con questo processo. Ctrl+C per fermare.")

@@ -46,6 +46,53 @@ angoli (vivi/arrotondati), materiali/ombre percepite, sensazione generale.
 Regole: concreto e specifico su QUESTO screen, niente frasi generiche da
 manuale. Niente testo fuori dalle sezioni. Massimo 300 parole."""
 
+DESCRIBE_SYSTEM_FULL = """Sei un design critic che descrive interfacce mobile da un fermo immagine.
+Scrivi in italiano, in Markdown. Analizza lo screen DALL'ALTO IN BASSO,
+zona per zona, poi chiudi col quadro generale. Segui ESATTAMENTE queste
+sezioni:
+
+## Sintesi
+Tre righe: che schermata sembra, scopo apparente, stile generale.
+
+## Zona per zona
+Dall'alto in basso, una sottosezione ### per area visiva (header, profilo,
+ogni gruppo/card, footer...): cosa contiene, come sono rapportati gli
+elementi, proporzioni relative ("la card e' alta circa il doppio della
+riga", "spazio tra card doppio rispetto agli spazi interni").
+
+## Palette
+Colori che vedi con il loro ruolo (sfondo, superfici, testi, accento/brand,
+stati). MAI codici hex: non puoi misurarli dal PNG, descrivi ("nero",
+"grigio scuro caldo", "blu elettrico") e conta dove ricorre l'accento.
+
+## Tipografia
+Scala percepita in rapporti ("titolo ~2x il corpo, caption ~3/4"),
+pesi a confronto, quali testi comandano. Testo illeggibile: scrivi
+"illeggibile" invece di inventarlo.
+
+## Componenti e stati
+Elementi riconoscibili e stato apparente di ciascuno (attivo, selezionato,
+disabilitato, ON/OFF...). Segnala affordance mancanti ("non si capisce cosa
+sia tappabile") e testi che sembrano placeholder.
+
+## Gerarchia in 3 secondi
+Dove va l'occhio prima, poi, alla fine. Solo osservazione, niente consigli.
+
+## Accessibilita' a occhio
+Contrasti sospetti, target che sembrano piccoli, testi al limite. Solo
+sospetti dal fermo immagine, niente misure in pixel.
+
+## Stile e mood
+Tema, linguaggio visivo, angoli, materiali/ombre percepite, sensazione
+generale, un aggettivo che la riassuma.
+
+## Piattaforma
+{platform_line}
+
+Regole: ogni affermazione deve ancorarsi a un elemento visibile ("si vede
+in..."). Se un dettaglio non si vede, scrivilo invece di inventarlo.
+Niente testo fuori dalle sezioni. Massimo 800 parole."""
+
 PLATFORM_LINES = {
     "ios": "Valuta quanto il design parla il dialetto iOS (materiali, corner continui, sheet, SF Symbols, safe-area).",
     "android": "Valuta quanto il design parla Material 3 expressive (superfici tonali, FAB, forme, stati).",
@@ -56,11 +103,15 @@ PLATFORM_LINES = {
 
 def build_describe_messages(preview_base64: str, context: str | None = None,
                             platform: str | None = None,
-                            mime: str = "image/png") -> list:
+                            mime: str = "image/png",
+                            detail: str = "short") -> list:
     """Messaggi per la scheda di stile. L'immagine e' obbligatoria:
-    senza PNG non c'e' niente da descrivere."""
+    senza PNG non c'e' niente da descrivere. detail: 'short' (scheda
+    compatta) o 'full' (analisi per zona, senza tetto parole basso)."""
     from .evaluator.vision import user_content_with_image
-    system = DESCRIBE_SYSTEM.format(
+    system_tmpl = (DESCRIBE_SYSTEM_FULL if detail == "full"
+                   else DESCRIBE_SYSTEM)
+    system = system_tmpl.format(
         platform_line=PLATFORM_LINES.get(platform or "", PLATFORM_LINES["both"]))
     user_text = ""
     if (context or "").strip():
@@ -85,8 +136,10 @@ def parse_describe(raw: str) -> str:
 def describe_image(chat_fn, preview_base64: str,
                    context: str | None = None,
                    platform: str | None = None,
-                   mime: str = "image/png") -> dict:
+                   mime: str = "image/png",
+                   detail: str = "short") -> dict:
     """Esegue la descrizione. chat_fn(messages) -> str.
     Ritorna {"text": ...}. Non scrive mai file: quello lo fa la CLI."""
-    messages = build_describe_messages(preview_base64, context, platform, mime)
+    messages = build_describe_messages(preview_base64, context, platform,
+                                       mime, detail)
     return {"text": parse_describe(chat_fn(messages))}

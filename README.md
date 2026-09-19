@@ -27,7 +27,7 @@ DesignChecker è un sistema che collega design e codice: propone e ridisegna sch
 
 ## Stato del progetto
 
-🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (review consultiva + fix con validatore gatekeeper, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34) + **AI con regolamento completo e contesto opzionale** (D35) + **autogen dell'app a ogni export/fix** (`dck serve --autogen`, D36) + **osservabilità completa** (log live del bridge + `dck trace`, D37) + **prompt e risposte AI completi nel log** (`dck serve --verbose`, D38) + **selezione piattaforma iOS/Android/Custom** nel plugin, con la "quadra" cross-platform nel validatore e nell'AI (D39) + **tema dark/light rilevato automaticamente** (luminanza dello sfondo, StatusBar e AI calibrati — l'AI non diventa mai il validatore, D40) + **patch AI per id di nodo** (niente indici numerici, upsert automatico, timeout 300s, D41) + **palette multi-tema** (token con varianti light/dark: un design dark viene tokenizzato su token scuri, il prompt AI vede i valori reali, identità cromatica inviolabile, D42) + **feedback di selezione** (il plugin mostra e logga sempre il frame selezionato, D43). 170 test OK. Decisioni D1–D43.
+🟢 **MVP → v0.4 (plugin Figma + AI) funzionanti.** Validatore CLI (48 regole, baseline **Expo SDK 57**, verificato settembre 2026) + codegen Expo (anche **fedele alla geometria Figma**, D33) + import da Figma (REST o **plugin**, zero rate limit) e da codice .tsx + generazione in progetto nuovo/esistente + **annotazioni real-time sul canvas Figma** + **integrazione AI** (schede stile dal PNG + padre+figli con gate, provider a scelta dell'utente) + **immagini vere nell'app** (PNG esportati dal plugin → `require()` nel progetto Expo, D34) + **AI con regolamento completo e contesto opzionale** (D35) + **autogen dell'app a ogni export/fix** (`dck serve --autogen`, D36) + **osservabilità completa** (log live del bridge + `dck trace`, D37) + **prompt e risposte AI completi nel log** (`dck serve --verbose`, D38) + **selezione piattaforma iOS/Android/Custom** nel plugin, con la "quadra" cross-platform nel validatore e nell'AI (D39) + **tema dark/light rilevato automaticamente** (luminanza dello sfondo, StatusBar e AI calibrati — l'AI non diventa mai il validatore, D40) + **patch AI per id di nodo** (niente indici numerici, upsert automatico, timeout 300s, D41) + **palette multi-tema** (token con varianti light/dark: un design dark viene tokenizzato su token scuri, il prompt AI vede i valori reali, identità cromatica inviolabile, D42) + **feedback di selezione** (il plugin mostra e logga sempre il frame selezionato, D43). 170 test OK. Decisioni D1–D43.
 
 ### Installazione (una volta sola)
 
@@ -77,8 +77,8 @@ designchecker project --forget        # scollega
 # AI: l'utente sceglie il provider (locale Ollama/LM Studio, o cloud con API key)
 designchecker ai                      # rileva i provider, menu due gruppi, probe, salva la scelta
 designchecker ai --probe              # ri-testa il provider salvato
-designchecker review imports/home2.screen.json   # valutazione qualitativa del design (consultiva)
-designchecker fix imports/home2.screen.json      # l'AI propone una patch, il validatore approva
+designchecker describe shot.png       # scheda di stile AI dal PNG (consultiva)
+designchecker describe shot.png --detail full  # analisi per zona (XL)
 ```
 
 Provider cloud supportati (selezionabili in `dck ai` incollando la API key):
@@ -105,8 +105,8 @@ designchecker serve --verbose                        # + prompt e risposte AI co
 ```
 
 Mentre il bridge gira, il suo terminale è il **registro di bordo**: ogni evento
-(/import con nodi/asset/violazioni/file scritti, /validate, /screen, /review,
-/fix con durata e provider) è una riga timestamped. Per la mappa completa e
+(/import con nodi/asset/violazioni/file scritti, /validate, /screen, /describe,
+/propose con durata e provider) è una riga timestamped. Per la mappa completa e
 statica della pipeline su uno screen specifico:
 
 ```bash
@@ -119,7 +119,7 @@ designchecker trace examples/home.screen.json   # 6 fasi: LETTURA → VALIDAZION
 5. **"Esporta selezione e valida"** → audit con errori/warning + rettangoli rossi/arancio disegnati sul canvas sui nodi che violano le regole. Immagini e icone del frame vengono esportate come PNG veri in `imports/assets/<schermata>/` (D34)
 6. Attiva **"Tempo reale"**: ogni modifica al frame viene ri-validata (debounce ~1s) e le annotazioni si aggiornano da sole
 7. **Scrittura**: inserisci l'id di uno screen importato (es. `home2`) → **Render** → il plugin crea il frame nativo sul canvas dal JSON. Con gli export del plugin il render è **fedele**: geometria reale e immagini/icone clonate dall'originale (D32)
-8. **AI** (dopo `designchecker ai`): **"Valuta il design"** per un parere qualitativo, **"Correggi con AI"** per una patch automatica — accettata solo se il validatore conferma il miglioramento, poi renderizzata sul canvas
+8. **AI** (dopo `designchecker ai`): **"dck describe"** per la scheda di stile dal frame e **"dck describe XL"** per l'analisi per zona (consultive: non toccano il JSON), **"Proponi nuovo design"** per padre+figli con gate del validatore e render su canvas
 ```
 
 ⚠️ **Preview:** Expo Go SDK 56+ non è più sugli store — su iOS usa una dev build (`npx expo run:ios` con Xcode) o `eas go`; su Android Expo Go via CLI (decisione D19).

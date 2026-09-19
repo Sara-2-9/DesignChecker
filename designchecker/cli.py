@@ -98,33 +98,15 @@ def main(argv: list[str] | None = None) -> None:
                          help="Niente log delle attivita' (default: log visibile, D37)")
     p_serve.add_argument("--verbose", action="store_true",
                          help="Mostra nel log anche il PROMPT completo inviato "
-                              "all'AI e la RISPOSTA grezza, per ogni /review e /fix (D38)")
+                              "all'AI e la RISPOSTA grezza, per ogni /describe e /propose (D38)")
     p_serve.add_argument("--autogen", nargs="?", const="~/Desktop/dck-preview",
                          default=None, metavar="PATH",
-                         help="Rigenera il progetto Expo a ogni export/fix (D36). "
+                         help="Rigenera il progetto Expo a ogni export/proposta accettata (D36). "
                               "Senza PATH usa ~/Desktop/dck-preview")
 
     p_ai = sub.add_parser("ai", help="Configura il provider AI: rileva, menu, probe (D31)")
     p_ai.add_argument("--probe", action="store_true",
                       help="Ri-testa il provider salvato senza riconfigurare")
-
-    p_fix = sub.add_parser("fix", help="L'AI propone una patch, il validatore la approva (D31)")
-    p_fix.add_argument("screen", type=Path, help="Percorso dello screen JSON")
-    p_fix.add_argument("--tokens", type=Path, default=None)
-    p_fix.add_argument("--catalog", type=Path, default=None)
-    p_fix.add_argument("--platform", choices=["ios", "android", "both", "custom"],
-                   default=None, help="Piattaforma del design; default: quella in meta.platform, altrimenti both (D39)")
-    p_fix.add_argument("--context", default=None,
-                       help="Contesto opzionale sull'app per calibrare l'AI (D35)")
-
-    p_review = sub.add_parser("review", help="Valutazione qualitativa AI del design (D31)")
-    p_review.add_argument("screen", type=Path, help="Percorso dello screen JSON")
-    p_review.add_argument("--tokens", type=Path, default=None)
-    p_review.add_argument("--catalog", type=Path, default=None)
-    p_review.add_argument("--platform", choices=["ios", "android", "both", "custom"],
-                      default=None, help="Piattaforma del design; default: quella in meta.platform, altrimenti both (D39)")
-    p_review.add_argument("--context", default=None,
-                          help="Contesto opzionale sull'app per calibrare l'AI (D35)")
 
     p_eval = sub.add_parser("evaluate", help="Padre valutatore: solo ruolo/scopo, niente scrittura")
     p_eval.add_argument("screen", type=Path, help="Percorso dello screen JSON")
@@ -151,6 +133,8 @@ def main(argv: list[str] | None = None) -> None:
                             help="Contesto opzionale sull'app per calibrare la descrizione")
     p_describe.add_argument("--platform", choices=["ios", "android", "custom", "both"],
                             default=None, help="Piattaforma del design (default: both)")
+    p_describe.add_argument("--detail", choices=["short", "full"], default="short",
+                            help="short: scheda compatta · full: analisi per zona (XL)")
     p_describe.add_argument("--out", type=Path, default=None,
                             help="Salva la scheda in markdown (default: solo stampa)")
 
@@ -234,10 +218,6 @@ def main(argv: list[str] | None = None) -> None:
         _ai_command(args)
         return
 
-    if args.command in ("fix", "review"):
-        _ai_screen_command(args, root, rules)
-        return
-
     if args.command in ("evaluate", "propose"):
         _evaluator_command(args, root, rules)
         return
@@ -286,7 +266,8 @@ def _describe_command(args) -> None:
     print(f"── Describe ({p.label} · {model}) ──")
     try:
         result = describe_image(chat_fn, _b64.b64encode(img.read_bytes()).decode(),
-                                args.context, args.platform, mime)
+                                args.context, args.platform, mime,
+                                getattr(args, "detail", "short"))
     except Exception as e:
         print(f"Il provider non risponde: {e}", file=sys.stderr)
         sys.exit(1)
@@ -877,84 +858,3 @@ def _ai_command(args) -> None:
     config["ai"]["model"] = model
     _save_config(config)
     print(f"✓ Salvato in ~/.designchecker/config.json: {p.pid} · {model}")
-
-
-def _ai_screen_command(args, root: Path, rules) -> None:
-    from . import ai as _ai
-    from . import patcher
-
-    if not args.screen.exists():
-        print(f"File non trovato: {args.screen}", file=sys.stderr)
-        sys.exit(2)
-    config = _load_config()
-    task = "review" if args.command == "review" else "patch_fix"
-    p, model = _resolve_provider(config, task)
-    if p is None or not model:
-        print("Nessun provider AI configurato. Lancia prima: dck ai", file=sys.stderr)
-        sys.exit(2)
-
-    screen = load_screen(args.screen)
-    tokens = TokenStore(load_tokens(args.tokens or (root / "examples" / "tokens.json")))
-    catalog = load_catalog(args.catalog or (root / "components.catalog.yaml"))
-    platform = args.platform or (screen.get("meta", {}) or {}).get("platform") or "both"
-    from .validator import resolve_theme
-    theme = resolve_theme(screen, tokens)
-    findings = validate(screen, rules, tokens, catalog,
-                        platform=platform, theme=theme)
-    # catalogo path -> valore nel tema attivo per il prompt di fix (D42)
-    from .tokens import effective_token_values as _etv
-    token_values = _etv(tokens, theme, screen)
-
-    def chat_fn(messages):
-        return _ai.chat(p, model, messages, config)
-
-    name = screen.get("meta", {}).get("name", str(args.screen))
-
-    if args.command == "review":
-        print(f"── Valutazione AI ({p.label} · {model} · {platform}) di '{name}' ──\n")
-        messages = patcher.build_review_prompt(screen, findings,
-                                               context=args.context, rules=rules,
-                                               platform=platform, theme=theme)
-        try:
-            print(chat_fn(messages).strip())
-        except Exception as e:
-            print(f"✗ Il provider non risponde: {e}", file=sys.stderr)
-            sys.exit(1)
-        print("\n(parere consultivo: il validatore deterministico resta l'arbitro)")
-        return
-
-    # fix
-    print(f"── Fix AI ({p.label} · {model} · {platform}) su '{name}' ──")
-
-    def validate_fn(scr):
-        fs = validate(scr, rules, tokens, catalog,
-                      platform=platform, theme=theme)
-        return [f for f in fs if f.severity == "error"], \
-               [f for f in fs if f.severity == "warning"]
-
-    result = patcher.fix_loop(screen, findings, validate_fn, chat_fn,
-                              token_paths=list(tokens.flat),
-                              token_values=token_values,
-                              context=args.context, rules=rules,
-                              platform=platform, theme=theme)
-    for line in result["log"]:
-        print(f"  {line}")
-    if result["applied"]:
-        import json as _json
-        bak = args.screen.with_suffix(args.screen.suffix + ".bak")
-        if not bak.exists():
-            bak.write_text(args.screen.read_text(encoding="utf-8"), encoding="utf-8")
-        args.screen.write_text(_json.dumps(result["screen"], indent=2,
-                                           ensure_ascii=False), encoding="utf-8")
-        print(f"\n✓ Patch applicata ({len(result['ops'])} operazioni):")
-        for op in result["ops"]:
-            print(f"    {op['op']:7} {op['path']}")
-        print(f"  File aggiornato: {args.screen} (backup: {bak.name})")
-        print("  Su Figma: dal plugin, Render per vedere la versione corretta.")
-        print("  Nota: il frame ORIGINALE su Figma e' ancora la versione vecchia —")
-        print("  riesportandolo sovrascrivi il fix (verra' salvato un backup")
-        print("  .preexport.bak). Continua a lavorare sul frame renderizzato.")
-    else:
-        print("\n✗ Nessuna correzione applicata: il file resta invariato.")
-        print("  Puoi correggere a mano o riprovare con un altro modello (dck ai).")
-    sys.exit(0 if result["applied"] or result["before"][0] == 0 else 1)
