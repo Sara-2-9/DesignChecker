@@ -204,13 +204,35 @@ def run_propose(screen: dict, findings: list | None = None,
                 preview_base64: str | None = None,
                 baseline: bool = True,
                 cache_dir=None,
-                emit=None) -> dict:
+                emit=None, brief: dict | None = None) -> dict:
     """Esegue l'intero giro padre+figli. Ritorna dict con role, sources,
-    blind, fixes, ops, log. La validazione finale (gate) resta fuori."""
+    blind, fixes, ops, log. La validazione finale (gate) resta fuori.
+    brief: {frame, flavor, text} da una Describe — riusato solo se descrive
+    questo stesso screen (controllo deterministico qui, mai dall'LLM)."""
     log: list[str] = []
     findings = findings or []
 
     sid = (screen.get("meta", {}) or {}).get("id", "screen")
+
+    # 0. scheda describe: vale solo per lo screen che descrive
+    brief_txt = ""
+    if isinstance(brief, dict) and (brief.get("text") or "").strip():
+        meta = screen.get("meta", {}) or {}
+        names = {str(meta.get("id", "")), str(meta.get("name", "")),
+                 str(meta.get("name", "")).split(" (")[0]}
+        frame = str(brief.get("frame") or "")
+        flavor = str(brief.get("flavor") or "describe")
+        fl = frame.lower()
+        if frame and any(n and (n.lower() == fl or n.lower().startswith(fl + " ("))
+                         for n in names if n):
+            brief_txt = (
+                f"SCHEDA CONDIVISA (da {flavor} sullo stesso frame — "
+                f"priorita' e osservazioni da riusare, non ripetere il lavoro):\n"
+                f"{brief['text'].strip()[:4000]}")
+            _phase(log, emit, f"scheda {flavor} allegata al padre")
+        else:
+            log.append(f"scheda {flavor} scartata (frame diverso: "
+                       f"{frame[:40] if frame else 'sconosciuto'})")
 
     # 1. classify ruolo/scopo
     _phase(log, emit, "call ai-padre · classify ruolo/scopo")
@@ -222,17 +244,23 @@ def run_propose(screen: dict, findings: list | None = None,
     role, goal = role_info["role"], role_info["user_goal"]
     _phase(log, emit, f"ruolo rilevato: {role} — {goal}")
 
-    # 2. diagnosi cieca (senza findings -> anti-ancoraggio)
+    # 2. diagnosi cieca (senza findings -> anti-ancoraggio).
+    # La scheda describe, se allegata, entra qui: il padre la riusa invece
+    # di ridescrivere da zero (ma la diagnosi resta sua: i findings restano
+    # fuori e il PNG resta la verita' visiva).
     _phase(log, emit, "call ai-padre · diagnosi cieca (senza validatore)")
     blind: list = []
     try:
         from ..patcher import extract_json
         from .vision import user_content_with_image
+        blind_user = f"RUOLO: {role} — {goal}\n"
+        if brief_txt:
+            blind_user += blind_txt + "\n"
+        blind_user += f"SCREEN:\n{json.dumps(screen, ensure_ascii=False)}"
         raw = chat_fn([
             {"role": "system", "content": BLIND_SYSTEM + "\n" + vision_note(bool(preview_base64))},
             {"role": "user", "content": user_content_with_image(
-                f"RUOLO: {role} — {goal}\nSCREEN:\n{json.dumps(screen, ensure_ascii=False)}",
-                preview_base64)},
+                blind_user, preview_base64)},
         ])
         blind = extract_json(raw)
         if not isinstance(blind, list):
@@ -313,7 +341,8 @@ def run_propose(screen: dict, findings: list | None = None,
         msgs = build_sub_messages(spec["id"], screen, idx, token_block,
                                   research_txt + f"\nFINDINGS (parere, non verita'): {flist}",
                                   role, goal, platform, theme,
-                                  style_block=style_block, blind_txt=blind_txt)
+                                  style_block=style_block, blind_txt=blind_txt,
+                                  brief_txt=brief_txt)
         t0 = _time.monotonic()
         try:
             fixes = parse_sub_fixes(chat_fn(msgs))

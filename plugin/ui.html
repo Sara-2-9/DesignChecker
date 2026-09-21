@@ -277,7 +277,7 @@ $('btn-describe-json').onclick = async () => {
   parent.postMessage({ pluginMessage: { type: 'export-describe-json' } }, '*');
 };
 
-async function describeWithPreview(preview_base64, detail, screen) {
+async function describeWithPreview(preview_base64, detail, screen, frameName, flavor) {
   try {
     const data = await bridge('/describe', {
       method: 'POST',
@@ -286,7 +286,8 @@ async function describeWithPreview(preview_base64, detail, screen) {
                              context: $('ai-context').value.trim() || undefined,
                              platform: $('platform').value,
                              detail: detail || 'short',
-                             screen: screen || undefined }),
+                             screen: screen || undefined,
+                             frame: frameName || undefined }),
     });
     if (data.error) {
       aiOut('<div class="finding error"><div>' + data.error + '</div></div>');
@@ -294,7 +295,19 @@ async function describeWithPreview(preview_base64, detail, screen) {
     } else {
       aiOut('<div class="critique">' +
         String(data.text || '').replace(/</g, '&lt;') + '</div>');
-      $('status').textContent = 'scheda stile pronta (consultiva: non tocca il JSON)';
+      let msg = 'scheda stile pronta (consultiva: non tocca il JSON)' +
+        (data.path ? ' · salvata: ' + String(data.path).split('/').pop() : '');
+      if (data.screen_path) {
+        msg += ' · JSON: ' + String(data.screen_path).split('/').pop() +
+          ' (renderizzabile da Scrivi-su-canvas)';
+      }
+      $('status').textContent = msg;
+      // Memo per propose: l'ultima scheda con il frame che descrive.
+      // Il padre la ricevera' solo se si propone lo STESSO frame (v. sotto).
+      if (data.text) {
+        lastBrief = { frame: frameName || '', flavor: flavor || 'describe',
+                      text: String(data.text) };
+      }
     }
   } catch (e) {
     $('status').textContent = 'bridge irraggiungibile durante describe';
@@ -302,9 +315,33 @@ async function describeWithPreview(preview_base64, detail, screen) {
   setAiBusy(false);
 }
 
+// Ultima scheda describe pronta da allegare al padre (solo stesso frame).
+let lastBrief = null;
+
+function briefForScreen(screen) {
+  // screen.meta.name e' "Nome (import plugin Figma)": confronta col nome
+  // registrato alla describe. Frame diversi -> niente allegato, mai mescolare.
+  if (!lastBrief || !lastBrief.text) return null;
+  const meta = (screen && screen.meta) || {};
+  const name = String(meta.name || '');
+  const frame = String(lastBrief.frame || '');
+  if (frame && (name === frame || name.indexOf(frame + ' (') === 0)) {
+    return lastBrief;
+  }
+  return null;
+}
+
 async function proposeWithScreen(screen, preview_base64, assets) {
   const phases = [];
   const show = () => proposePhases(phases);
+  // Scheda describe allegata solo se descrive QUESTO frame (mai mescolare).
+  const brief = briefForScreen(screen);
+  if (lastBrief && lastBrief.text && !brief) {
+    phases.push('nota: scheda "' + lastBrief.flavor + '" di altro frame, non allegata');
+  } else if (brief) {
+    phases.push('scheda "' + brief.flavor + '" allegata al padre');
+  }
+  show();
   try {
     const res = await fetch(BRIDGE + '/propose?stream=1', {
       method: 'POST',
@@ -313,7 +350,8 @@ async function proposeWithScreen(screen, preview_base64, assets) {
                              assets: assets || [],
                              context: $('ai-context').value.trim() || undefined,
                              platform: $('platform').value, theme: $('theme').value,
-                             baseline: $('baseline').checked }),
+                             baseline: $('baseline').checked,
+                             brief: brief || undefined }),
     });
     if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
     const reader = res.body.getReader();
@@ -431,7 +469,8 @@ window.onmessage = async (event) => {
   }
   if (msg.type === 'describe-exported') {
     try {
-      await describeWithPreview(msg.preview_base64, pendingDetail);
+      await describeWithPreview(msg.preview_base64, pendingDetail, null,
+                                msg.frameName, pendingDetail === 'full' ? 'describe-XL' : 'describe');
     } catch (e) {
       $('status').textContent = 'bridge irraggiungibile durante describe';
       setAiBusy(false);
@@ -440,7 +479,8 @@ window.onmessage = async (event) => {
   }
   if (msg.type === 'describe-json-exported') {
     try {
-      await describeWithPreview(msg.preview_base64, 'full', msg.screen);
+      await describeWithPreview(msg.preview_base64, 'full', msg.screen,
+                                msg.frameName, 'describe+JSON');
     } catch (e) {
       $('status').textContent = 'bridge irraggiungibile durante describe';
       setAiBusy(false);

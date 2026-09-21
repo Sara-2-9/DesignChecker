@@ -164,10 +164,12 @@ class Bridge:
                       context: str | None = None,
                       platform: str | None = None,
                       detail: str = "short",
-                      screen: dict | None = None) -> dict:
+                      screen: dict | None = None,
+                      frame: str | None = None) -> dict:
         """Scheda di stile da un PNG, opzionalmente ancorata allo screen JSON
         (bottone Describe+JSON: valori esatti + concordanze/discordanze).
-        Consultiva: non tocca JSON, non valida, non scrive file."""
+        Consultiva sul design (non tocca JSON, non valida), ma la scheda
+        viene salvata in imports/<frame>.describe[-xl|-json].md (D54)."""
         from . import ai as _ai
         from .describer import (build_describe_json_messages,
                                 build_describe_messages, describe_image,
@@ -212,11 +214,114 @@ class Bridge:
             text = result["text"].strip()
             self._log_block("RISPOSTA ← AI (scheda stile)", text)
             self._log(f"  ✓ scheda ricevuta in {time.monotonic() - t0:.1f}s "
-                      f"({len(text)} caratteri) — nessuna scrittura, e' consultiva")
-            return {"text": text}
+                      f"({len(text)} caratteri) — nessuna scrittura sul design, "
+                      f"e' consultiva")
+            out: dict = {"text": text}
+            saved = self._save_describe(frame, screen, anchored, detail,
+                                        p, model, text)
+            if saved:
+                out["path"] = saved
+            if anchored:
+                # Describe+JSON: lo screen e' appena uscito dal canvas, quindi
+                # salvarlo come <id>.screen.json e' un export a tutti gli
+                # effetti — diventa file vero: ispezionabile e renderizzabile
+                # via Scrivi-su-canvas come gli altri (D54).
+                screen_path = self._save_describe_screen(screen)
+                if screen_path:
+                    out["screen_path"] = screen_path
+            return out
         except Exception as e:
             self._log(f"  ✗ provider irraggiungibile: {e}")
             return {"error": f"Il provider non risponde: {e}"}
+
+    @staticmethod
+    def _describe_filename(frame: str | None, screen: dict | None,
+                           anchored: bool, detail: str) -> str | None:
+        """Nome file della scheda (senza path): None se non salvabile.
+        short -> <id>.describe.md · full -> <id>.describe-xl.md ·
+        json -> <id>.describe-json.md. Ultima vince (sovrascrittura)."""
+        from .codegen import kebab
+        raw = (frame or "")
+        if not raw and isinstance(screen, dict):
+            meta = screen.get("meta", {}) or {}
+            raw = str(meta.get("name") or meta.get("id") or "")
+            if raw.endswith(" (import plugin Figma)"):
+                raw = raw[: -len(" (import plugin Figma)")]
+        raw = raw.strip().strip("/")
+        if not raw or "/" in raw or "\\" in raw or ".." in raw:
+            return None
+        safe = "".join(c for c in kebab(raw) if c.isalnum() or c in "-_")
+        if not safe:
+            return None
+        suffix = ".describe-json.md" if anchored else (
+            ".describe-xl.md" if detail == "full" else ".describe.md")
+        return safe + suffix
+
+    def _save_describe(self, frame: str | None, screen: dict | None,
+                       anchored: bool, detail: str,
+                       p, model: str, text: str) -> str | None:
+        """Scrive imports/<file> con header (frame, flavor, data, modello).
+        Ritorna il path o None. Mai fuori da imports/."""
+        import time as _time
+        fname = self._describe_filename(frame, screen, anchored, detail)
+        if fname is None:
+            return None
+        try:
+            base = (self.root / "imports").resolve()
+            path = base / fname
+            if path.resolve().parent != base:
+                return None
+            flavor = "json" if anchored else detail
+            label = (frame or "").strip()
+            if not label and isinstance(screen, dict):
+                label = str((screen.get("meta", {}) or {}).get("id", ""))
+            header = (f"<!-- describe:{flavor} · frame:{label} · "
+                      f"{_time.strftime('%Y-%m-%d %H:%M')} · {p.label} {model} -->\n\n")
+            base.mkdir(parents=True, exist_ok=True)
+            path.write_text(header + text.strip() + "\n", encoding="utf-8")
+            self._log(f"  scheda salvata: imports/{fname}")
+            return str(path)
+        except OSError:
+            return None
+
+    def _save_describe_screen(self, screen: dict | None) -> str | None:
+        """Persiste lo screen di una Describe+JSON come <id>.screen.json.
+
+        E' lo stesso file che scriverebbe Esporta (stesso contenuto, appena
+        uscito dal canvas): da qui e' elencato in /screens, ispezionabile e
+        renderizzabile. Guardia anti-perdita come in /import: se il file su
+        disco era modificato fuori dal canvas, backup .preexport.bak prima
+        di sovrascrivere. Sidecar sha aggiornato di conseguenza."""
+        import hashlib as _hashlib
+        if not isinstance(screen, dict):
+            return None
+        sid = str((screen.get("meta", {}) or {}).get("id", "")).strip()
+        safe = "".join(c for c in sid if c.isalnum() or c in "-_")
+        if not safe:
+            return None
+        try:
+            base = (self.root / "imports").resolve()
+            path = base / f"{safe}.screen.json"
+            if path.resolve().parent != base:
+                return None
+            base.mkdir(parents=True, exist_ok=True)
+            new_content = json.dumps(screen, indent=2, ensure_ascii=False)
+            sidecar = base / f".{safe}.export.sha256"
+            if path.exists() and sidecar.exists():
+                disk = path.read_text(encoding="utf-8")
+                last = sidecar.read_text(encoding="utf-8").strip()
+                if (self._sha(disk) != last
+                        and self._sha(disk) != self._sha(new_content)):
+                    bak = path.with_suffix(path.suffix + ".preexport.bak")
+                    bak.write_text(disk, encoding="utf-8")
+                    self._log(f"  sync guard: backup in {bak.name}")
+            path.write_text(new_content, encoding="utf-8")
+            sidecar.write_text(self._sha(new_content), encoding="utf-8")
+            self._log(f"  screen salvato: imports/{safe}.screen.json "
+                      f"(renderizzabile da Scrivi-su-canvas)")
+            return str(path)
+        except OSError:
+            return None
 
     def catalog_payload(self) -> dict:
         return self.catalog
@@ -437,12 +542,14 @@ class Bridge:
     def propose_screen(self, screen: dict, preview_base64: str | None = None,
                        context: str | None = None, platform: str | None = None,
                        theme: str | None = None, baseline: bool = True,
-                       search_fn=None, emit=None) -> dict:
+                       search_fn=None, emit=None, brief: dict | None = None) -> dict:
         """Giro completo Proponi nuovo design: padre+figli -> gate validatore.
 
         emit(text) chiamato a ogni fase (streaming plugin + log console).
         Salva preview PNG, proposal JSON e eval.jsonl. Il frame originale
         non viene mai sovrascritto: la proposta va in <id>.ai-proposal.screen.json.
+        brief (opzionale): {frame, flavor, text} da una Describe — il padre lo
+        riusa solo se descrive questo stesso screen (controllo in run_propose).
         """
         from . import ai as _ai
         from . import patcher
@@ -512,7 +619,7 @@ class Bridge:
                                preview_base64=preview_base64 if preview else None,
                                baseline=baseline,
                                cache_dir=self.root / ".designchecker" / "research",
-                               emit=_emit)
+                               emit=_emit, brief=brief)
         except Exception as e:
             self._log(f"  ✗ orchestratore fallito: {e}")
             return {"error": f"Orchestratore fallito: {e}"}
@@ -678,7 +785,8 @@ def make_handler(bridge: Bridge):
                     payload.get("preview_base64"), context=payload.get("context"),
                     platform=payload.get("platform"),
                     detail=payload.get("detail", "short"),
-                    screen=payload.get("screen")))
+                    screen=payload.get("screen"),
+                    frame=payload.get("frame")))
             elif self.path == "/client-log":
                 # eventi lato Figma (selezione frame, D43): solo log, nessuna scrittura
                 self._send(200, bridge.client_log(payload.get("message", "")))
@@ -697,7 +805,8 @@ def make_handler(bridge: Bridge):
                     self._send(200, bridge.propose_screen(
                         screen, preview_base64=payload.get("preview_base64"),
                         context=payload.get("context"), platform=platform,
-                        theme=theme, baseline=baseline))
+                        theme=theme, baseline=baseline,
+                        brief=payload.get("brief")))
                 else:
                     self._send_propose_stream(bridge, screen, payload, platform, theme, baseline)
             else:
@@ -724,7 +833,8 @@ def make_handler(bridge: Bridge):
             result = bridge.propose_screen(
                 screen, preview_base64=payload.get("preview_base64"),
                 context=payload.get("context"), platform=platform,
-                theme=theme, baseline=baseline, emit=emit)
+                theme=theme, baseline=baseline, emit=emit,
+                brief=payload.get("brief"))
             try:
                 self.wfile.write((json.dumps({"done": True, "result": result},
                                              ensure_ascii=False) + "\n").encode("utf-8"))

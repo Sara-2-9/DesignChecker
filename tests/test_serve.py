@@ -491,6 +491,95 @@ class TestBridgeAI(unittest.TestCase):
             Bridge._ai_provider = orig_provider
             ai_mod.chat = orig_chat
             ai_mod.supports_vision = orig_vision
+            (ROOT / "imports" / "s.describe-json.md").unlink(missing_ok=True)
+            (ROOT / "imports" / "s.screen.json").unlink(missing_ok=True)
+            (ROOT / "imports" / ".s.export.sha256").unlink(missing_ok=True)
+
+    def test_describe_json_salva_screen_renderizzabile(self):
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        orig_vision = ai_mod.supports_vision
+        Bridge._ai_provider = lambda self: (p, model, {})
+        ai_mod.chat = lambda *a, **k: "## Sintesi\nOk"
+        ai_mod.supports_vision = lambda *a, **k: True
+        target = ROOT / "imports" / "test-desc-json.screen.json"
+        try:
+            screen = {"schema_version": "0.1.0",
+                      "meta": {"id": "test-desc-json"},
+                      "root": {"id": "r", "type": "Screen"}}
+            result = self.bridge.ai_describe("QUJD", screen=screen)
+            self.assertIn("screen_path", result)
+            self.assertTrue(target.is_file())
+            saved = json.loads(target.read_text(encoding="utf-8"))
+            self.assertEqual(saved["meta"]["id"], "test-desc-json")
+            # ed e' elencato per Scrivi-su-canvas come gli altri import
+            self.assertIn("test-desc-json", self.bridge.list_screens())
+            self.assertIsNotNone(self.bridge.get_screen("test-desc-json"))
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat
+            ai_mod.supports_vision = orig_vision
+            target.unlink(missing_ok=True)
+            (ROOT / "imports" / "test-desc-json.describe-json.md").unlink(
+                missing_ok=True)
+            (ROOT / "imports" / ".test-desc-json.export.sha256").unlink(
+                missing_ok=True)
+            (ROOT / "imports" / "s.describe-json.md").unlink(missing_ok=True)
+
+    def test_describe_salva_scheda_per_flavor(self):
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        orig_vision = ai_mod.supports_vision
+        Bridge._ai_provider = lambda self: (p, model, {})
+        ai_mod.chat = lambda *a, **k: "## Sintesi\nOk"
+        ai_mod.supports_vision = lambda *a, **k: True
+        made = []
+        try:
+            for kwargs, suffix in (({"frame": "Test Frame"}, ".describe.md"),
+                                   ({"frame": "Test Frame",
+                                     "detail": "full"}, ".describe-xl.md"),
+                                   ({"frame": "Test Frame",
+                                     "screen": {"meta": {"id": "t"},
+                                                "root": {"id": "r",
+                                                         "type": "Screen"}}},
+                                    ".describe-json.md")):
+                result = self.bridge.ai_describe("QUJD", **kwargs)
+                self.assertIn("path", result)
+                target = ROOT / "imports" / ("test-frame" + suffix)
+                made.append(target)
+                self.assertTrue(target.is_file())
+                content = target.read_text(encoding="utf-8")
+                self.assertIn("## Sintesi", content)
+                self.assertIn("Test Frame", content)
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat
+            ai_mod.supports_vision = orig_vision
+            for target in made:
+                target.unlink(missing_ok=True)
+
+    def test_describe_frame_ostile_non_scrive_fuori(self):
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        orig_vision = ai_mod.supports_vision
+        Bridge._ai_provider = lambda self: (p, model, {})
+        ai_mod.chat = lambda *a, **k: "## Sintesi\nOk"
+        ai_mod.supports_vision = lambda *a, **k: True
+        try:
+            result = self.bridge.ai_describe("QUJD", frame="../fuori")
+            self.assertIn("text", result)
+            self.assertNotIn("path", result)
+            self.assertFalse((ROOT / "fuori.describe.md").exists())
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat
+            ai_mod.supports_vision = orig_vision
 
 class TestBridgeVerboseAI(unittest.TestCase):
     """D38: --verbose mostra nel log il prompt completo e la risposta grezza."""

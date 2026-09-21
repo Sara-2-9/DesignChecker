@@ -103,7 +103,8 @@ def build_sub_messages(sid: str, screen: dict, involved: dict,
                        platform: str | None = None,
                        theme: str | None = None,
                        style_block: str | None = None,
-                       blind_txt: str | None = None) -> list:
+                       blind_txt: str | None = None,
+                       brief_txt: str | None = None) -> list:
     spec = next(s for s in SUBAGENTS if s["id"] == sid)
     system = SUB_SYSTEM.format(sid=sid, title=spec["title"], role=role,
                                goal=goal, brief=spec["brief"],
@@ -116,6 +117,8 @@ def build_sub_messages(sid: str, screen: dict, involved: dict,
     parts = [research_txt, token_block]
     if blind_txt:
         parts.append(blind_txt)
+    if brief_txt:
+        parts.append(brief_txt)
     parts.append("SCREEN (compatto: id/tipi/testi/layout/stili, meta rumorose rimosse):\n"
                  + json.dumps(slim, ensure_ascii=False))
     user = "\n\n".join(p for p in parts if p)

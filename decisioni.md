@@ -551,6 +551,21 @@ Restano: validatore, gate e flusso padre+figli (propose), describe short
 bottone proprio. README aggiornato; decisioni D31/D35 restano agli atti
 come storia.
 
+## D54 — Schede describe salvate in imports (2026-09)
+
+Richiesta: ritrovare le schede come file. Decisione: ogni describe riuscita
+via bridge salva `imports/<frame>.describe[.md|-xl.md|-json.md]` per flavor
+(short/XL/JSON), con header (frame, flavor, data, modello); ultima vince
+(sovrascrittura). Nomi sanitizzati, mai fuori da imports/ (frame ostili:
+testo restituito, niente file). La CLI resta esplicita (--out). Niente
+oramai: consultive sul design, ma tracciate su disco.
+
+Estensione: la Describe+JSON salva anche lo screen come
+`imports/<id>.screen.json` (stesso file di Esporta: elencato in /screens,
+ispezionabile, renderizzabile da Scrivi-su-canvas), con stessa guardia
+anti-perdita di /import (.preexport.bak) e sidecar sha aggiornato.
+
+
 ## D52 — Describe+JSON ancorata (2026-09)
 
 La scheda XL da solo PNG convince ma resta impressionistica. Nuova
@@ -559,3 +574,26 @@ figli), prompt dedicato con sezione "Concordanze e discordanze" — valori
 esatti solo dal JSON, percepito solo dal PNG, i disaccordi segnalati.
 Bottone plugin "Describe+JSON", flag CLI `--screen`, endpoint /describe
 esteso (screen opzionale). Consultiva come le altre describe.
+
+## D53 — Scheda describe allegata al padre di propose (2026-09)
+
+Richiesta: che al padre di propose arrivi la descrizione da una Describe,
+e che le Describe non lascino file orfani. Verificato: nessuna describe
+salva JSON (consultive per disegno) — la lista file per il Render resta
+imports/*.screen.json via /screens; per portare in Figma il JSON di una
+Describe+JSON basta Esporta selezione + Render.
+Decisione: l'ultima scheda ({frame, flavor, text}) viaggia in memoria e
+viene allegata al POST /propose; run_propose la riusa in diagnosi cieca
+e figli SOLO se descrive lo stesso screen (match deterministico su
+meta.id/nome, mai giudizio LLM; mismatch scartato e loggato). Anche da
+CLI con --brief (file markdown, vale per quello screen). Nessun salvataggio
+aggiuntivo: niente file, niente orfani.
+
+## D54 — Schede describe salvate in imports (2026-09)
+
+Richiesta: ritrovare le schede come file. Decisione: ogni describe riuscita
+via bridge salva `imports/<frame>.describe[.md|-xl.md|-json.md]` per flavor
+(short/XL/JSON), con header (frame, flavor, data, modello); ultima vince
+(sovrascrittura). Nomi sanitizzati, mai fuori da imports/ (frame ostili:
+testo restituito, niente file). La CLI resta esplicita (--out). Niente
+oramai: consultive sul design, ma tracciate su disco.

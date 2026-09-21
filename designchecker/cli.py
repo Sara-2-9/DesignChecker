@@ -125,6 +125,9 @@ def main(argv: list[str] | None = None) -> None:
                            help="PNG del frame (vision padre)")
     p_propose.add_argument("--no-baseline", action="store_true",
                            help="Salta i findings iniziali: padre cieco da JSON+PNG+ricerca (anti-ancoraggio)")
+    p_propose.add_argument("--brief", type=Path, default=None,
+                           help="Scheda describe in markdown da riusare nel padre "
+                                "(vale per questo stesso screen)")
 
     p_describe = sub.add_parser("describe",
                                 help="Scheda di stile AI da un PNG: palette, tipo, ritmo, componenti, mood")
@@ -355,12 +358,21 @@ def _evaluator_command(args, root: Path, rules) -> None:
           f"{' (OFF: padre cieco)' if not baseline else ''}")
 
     from .evaluator.websearch import duckduckgo_search
+    brief = None
+    if getattr(args, "brief", None):
+        bp = Path(args.brief).expanduser()
+        if not bp.is_file():
+            print(f"Scheda non trovata: {args.brief}", file=sys.stderr)
+            sys.exit(2)
+        brief = {"frame": (screen.get("meta", {}) or {}).get("id", ""),
+                 "flavor": "file",
+                 "text": bp.read_text(encoding="utf-8")}
     prop = run_propose(screen, findings, chat_fn, search_fn=duckduckgo_search,
                        token_paths=list(tokens.flat), token_values=token_values,
                        context=args.context, platform=platform, theme=theme,
                        preview_base64=preview_b64, baseline=baseline,
                        cache_dir=root / ".designchecker" / "research",
-                       emit=lambda t: print(f"  {t}"))
+                       emit=lambda t: print(f"  {t}"), brief=brief)
     for line in prop["log"]:
         pass  # gia' stampate via emit
 

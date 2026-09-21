@@ -1288,7 +1288,8 @@ figma.ui.onmessage = async (msg) => {
       figma.ui.postMessage({ type: 'error', message: 'Export PNG non riuscito: riprova.' });
       return;
     }
-    figma.ui.postMessage({ type: 'describe-exported', preview_base64: preview });
+    figma.ui.postMessage({ type: 'describe-exported', preview_base64: preview,
+                           frameName: node.name });
     return;
   }
   if (msg.type === 'export-describe-json') {
@@ -1309,7 +1310,7 @@ figma.ui.onmessage = async (msg) => {
       return;
     }
     figma.ui.postMessage({ type: 'describe-json-exported', screen: screen,
-                           preview_base64: preview });
+                           preview_base64: preview, frameName: node.name });
     return;
   }
   if (msg.type === 'annotate') {

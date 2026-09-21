@@ -135,6 +135,62 @@ class TestOrchestrator(unittest.TestCase):
         self.assertTrue(any("baseline disattivata" in l for l in res["log"]))
 
 
+class TestBrief(unittest.TestCase):
+    """La scheda describe arriva al padre solo se descrive lo stesso screen."""
+
+    def _screen(self):
+        return {"schema_version": "0.1.0",
+                "meta": {"id": "home", "name": "Home (import plugin Figma)"},
+                "root": {"id": "home", "type": "Screen", "children": []}}
+
+    def _chat(self, seen):
+        def chat(messages):
+            seen.append(messages)
+            txt = str(messages)
+            if "classificatore di ruolo" in txt:
+                return '{"role": "wallet-home", "user_goal": "g"}'
+            if "padre valutatore" in txt:
+                return "[]"
+            if "Ricercatore UX" in txt:
+                return '{"queries": []}'
+            return "[]"
+        return chat
+
+    def _sub_msgs(self, seen):
+        return [m for m in seen
+                if any("sottoagente" in str(part.get("content", ""))
+                       for part in m if isinstance(part, dict))]
+
+    def test_scheda_stesso_frame_arriva_ai_figli(self):
+        seen = []
+        brief = {"frame": "Home", "flavor": "describe-XL",
+                 "text": "MARKER-SCHEDA-CONDIVISA-XYZ"}
+        res = run_propose(self._screen(), findings=[],
+                          chat_fn=self._chat(seen), search_fn=None,
+                          baseline=False, brief=brief)
+        subs = self._sub_msgs(seen)
+        self.assertTrue(subs, "nessun sub-agent chiamato")
+        self.assertTrue(any("MARKER-SCHEDA-CONDIVISA-XYZ" in str(m) for m in subs))
+        self.assertTrue(any("scheda describe-XL allegata" in l for l in res["log"]))
+
+    def test_scheda_altro_frame_scartata(self):
+        seen = []
+        brief = {"frame": "Altra", "flavor": "describe",
+                 "text": "MARKER-SCHEDA-CONDIVISA-XYZ"}
+        res = run_propose(self._screen(), findings=[],
+                          chat_fn=self._chat(seen), search_fn=None,
+                          baseline=False, brief=brief)
+        self.assertFalse(any("MARKER-SCHEDA-CONDIVISA-XYZ" in str(m) for m in seen))
+        self.assertTrue(any("scartata" in l for l in res["log"]))
+
+    def test_senza_scheda_nessun_blocco(self):
+        seen = []
+        res = run_propose(self._screen(), findings=[],
+                          chat_fn=self._chat(seen), search_fn=None,
+                          baseline=False)
+        self.assertTrue(any("call sub-agent" in l for l in res["log"]))
+
+
 class TestProposeGate(unittest.TestCase):
     def test_rejects_worse_patch(self):
         from designchecker.validator import Finding
