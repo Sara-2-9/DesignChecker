@@ -473,6 +473,25 @@ class TestBridgeAI(unittest.TestCase):
             Bridge._ai_provider = orig_provider
             ai_mod.supports_vision = orig_vision
 
+    def test_describe_json_usa_scheda_ancorata(self):
+        import designchecker.ai as ai_mod
+        p, model = self._fake_provider()
+        orig_provider = Bridge._ai_provider
+        orig_chat = ai_mod.chat
+        orig_vision = ai_mod.supports_vision
+        Bridge._ai_provider = lambda self: (p, model, {})
+        ai_mod.chat = lambda *a, **k: "## Concordanze e discordanze\nTutto torna"
+        ai_mod.supports_vision = lambda *a, **k: True
+        try:
+            screen = {"schema_version": "0.1.0", "meta": {"id": "s"},
+                      "root": {"id": "r", "type": "Screen"}}
+            result = self.bridge.ai_describe("QUJD", screen=screen)
+            self.assertIn("Concordanze", result.get("text", ""))
+        finally:
+            Bridge._ai_provider = orig_provider
+            ai_mod.chat = orig_chat
+            ai_mod.supports_vision = orig_vision
+
 class TestBridgeVerboseAI(unittest.TestCase):
     """D38: --verbose mostra nel log il prompt completo e la risposta grezza."""
 

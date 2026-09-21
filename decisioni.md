@@ -550,3 +550,12 @@ Restano: validatore, gate e flusso padre+figli (propose), describe short
 (+ opzione XL: analisi per zona, prompt dedicato) da CLI e da plugin con
 bottone proprio. README aggiornato; decisioni D31/D35 restano agli atti
 come storia.
+
+## D52 — Describe+JSON ancorata (2026-09)
+
+La scheda XL da solo PNG convince ma resta impressionistica. Nuova
+funzionalita': stesso PNG + screen JSON compattato (stessa forma dei
+figli), prompt dedicato con sezione "Concordanze e discordanze" — valori
+esatti solo dal JSON, percepito solo dal PNG, i disaccordi segnalati.
+Bottone plugin "Describe+JSON", flag CLI `--screen`, endpoint /describe
+esteso (screen opzionale). Consultiva come le altre describe.

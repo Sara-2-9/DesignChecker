@@ -135,6 +135,8 @@ def main(argv: list[str] | None = None) -> None:
                             default=None, help="Piattaforma del design (default: both)")
     p_describe.add_argument("--detail", choices=["short", "full"], default="short",
                             help="short: scheda compatta · full: analisi per zona (XL)")
+    p_describe.add_argument("--screen", type=Path, default=None,
+                            help="Screen JSON da incrociare col PNG (scheda ancorata ai valori)")
     p_describe.add_argument("--out", type=Path, default=None,
                             help="Salva la scheda in markdown (default: solo stampa)")
 
@@ -264,10 +266,22 @@ def _describe_command(args) -> None:
         return _ai.chat(p, model, messages, config)
 
     print(f"── Describe ({p.label} · {model}) ──")
+    screen = None
+    if getattr(args, "screen", None):
+        if not args.screen.exists():
+            print(f"Screen non trovato: {args.screen}", file=sys.stderr)
+            sys.exit(2)
+        screen = load_screen(args.screen)
     try:
-        result = describe_image(chat_fn, _b64.b64encode(img.read_bytes()).decode(),
-                                args.context, args.platform, mime,
-                                getattr(args, "detail", "short"))
+        if screen is not None:
+            from .describer import describe_json
+            result = describe_json(chat_fn, screen,
+                                   _b64.b64encode(img.read_bytes()).decode(),
+                                   args.context, args.platform, mime)
+        else:
+            result = describe_image(chat_fn, _b64.b64encode(img.read_bytes()).decode(),
+                                    args.context, args.platform, mime,
+                                    getattr(args, "detail", "short"))
     except Exception as e:
         print(f"Il provider non risponde: {e}", file=sys.stderr)
         sys.exit(1)

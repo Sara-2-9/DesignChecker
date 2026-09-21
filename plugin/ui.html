@@ -91,6 +91,7 @@
   <div class="row">
     <button id="btn-describe" class="secondary" disabled>dck describe</button>
     <button id="btn-describe-xl" class="secondary" disabled>dck describe XL</button>
+    <button id="btn-describe-json" class="secondary" disabled>Describe+JSON</button>
   </div>
   <div class="row">
     <button id="btn-propose" class="secondary" disabled>Proponi nuovo design (padre+figli)</button>
@@ -146,6 +147,7 @@ async function boot() {
       $('btn-propose').disabled = false;
       $('btn-describe').disabled = false;
       $('btn-describe-xl').disabled = false;
+      $('btn-describe-json').disabled = false;
     } else {
       $('ai-model').textContent = '· non configurata (dck ai)';
     }
@@ -229,6 +231,7 @@ function setAiBusy(busy, label) {
   $('btn-propose').disabled = busy;
   $('btn-describe').disabled = busy;
   $('btn-describe-xl').disabled = busy;
+  $('btn-describe-json').disabled = busy;
   if (label) $('status').textContent = label;
 }
 
@@ -265,8 +268,16 @@ $('btn-describe-xl').onclick = async () => {
   aiOut('');
   parent.postMessage({ pluginMessage: { type: 'export-describe' } }, '*');
 };
+// Describe+JSON: screen JSON + PNG -> POST /describe con screen (scheda
+// ancorata ai valori + concordanze/discordanze). Serve export completo.
+$('btn-describe-json').onclick = async () => {
+  if (aiBusy) return;
+  setAiBusy(true, 'descrivo stile + valori dal frame…');
+  aiOut('');
+  parent.postMessage({ pluginMessage: { type: 'export-describe-json' } }, '*');
+};
 
-async function describeWithPreview(preview_base64, detail) {
+async function describeWithPreview(preview_base64, detail, screen) {
   try {
     const data = await bridge('/describe', {
       method: 'POST',
@@ -274,7 +285,8 @@ async function describeWithPreview(preview_base64, detail) {
       body: JSON.stringify({ preview_base64,
                              context: $('ai-context').value.trim() || undefined,
                              platform: $('platform').value,
-                             detail: detail || 'short' }),
+                             detail: detail || 'short',
+                             screen: screen || undefined }),
     });
     if (data.error) {
       aiOut('<div class="finding error"><div>' + data.error + '</div></div>');
@@ -420,6 +432,15 @@ window.onmessage = async (event) => {
   if (msg.type === 'describe-exported') {
     try {
       await describeWithPreview(msg.preview_base64, pendingDetail);
+    } catch (e) {
+      $('status').textContent = 'bridge irraggiungibile durante describe';
+      setAiBusy(false);
+    }
+    return;
+  }
+  if (msg.type === 'describe-json-exported') {
+    try {
+      await describeWithPreview(msg.preview_base64, 'full', msg.screen);
     } catch (e) {
       $('status').textContent = 'bridge irraggiungibile durante describe';
       setAiBusy(false);

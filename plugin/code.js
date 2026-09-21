@@ -1291,6 +1291,27 @@ figma.ui.onmessage = async (msg) => {
     figma.ui.postMessage({ type: 'describe-exported', preview_base64: preview });
     return;
   }
+  if (msg.type === 'export-describe-json') {
+    // Describe+JSON: screen JSON + PNG (niente asset: alla scheda bastano
+    // struttura e anteprima). Condivide l'export fedele del propose.
+    const node = currentTargetNode();
+    if (!node) {
+      const d = describeSelection();
+      figma.ui.postMessage({ type: 'error', message: d
+        ? 'Hai selezionato "' + d.name + '" (' + d.kind + '): non e\' un frame. Seleziona il frame della schermata.'
+        : 'Seleziona un frame sul canvas (la schermata).' });
+      return;
+    }
+    const screen = exportFrame(node);
+    const preview = await exportPreview(node);
+    if (!preview) {
+      figma.ui.postMessage({ type: 'error', message: 'Export PNG non riuscito: riprova.' });
+      return;
+    }
+    figma.ui.postMessage({ type: 'describe-json-exported', screen: screen,
+                           preview_base64: preview });
+    return;
+  }
   if (msg.type === 'annotate') {
     exportMap = msg.map || exportMap;
     await annotate(msg.findings || []);

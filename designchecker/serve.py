@@ -163,11 +163,15 @@ class Bridge:
     def ai_describe(self, preview_base64: str | None,
                       context: str | None = None,
                       platform: str | None = None,
-                      detail: str = "short") -> dict:
-        """Scheda di stile da un PNG (bottoni describe nel plugin).
+                      detail: str = "short",
+                      screen: dict | None = None) -> dict:
+        """Scheda di stile da un PNG, opzionalmente ancorata allo screen JSON
+        (bottone Describe+JSON: valori esatti + concordanze/discordanze).
         Consultiva: non tocca JSON, non valida, non scrive file."""
         from . import ai as _ai
-        from .describer import build_describe_messages, describe_image
+        from .describer import (build_describe_json_messages,
+                                build_describe_messages, describe_image,
+                                describe_json)
         p, model, config = self._ai_provider()
         if p is None:
             return {"error": "Provider AI non configurato: lancia `dck ai`"}
@@ -177,11 +181,19 @@ class Bridge:
             detail = "short"
         if not _ai.supports_vision(p, model):
             return {"error": f"Il modello {model} non ha vision: cambialo con `dck ai`"}
-        self._log(f"→ /describe [{platform or 'both'} · {detail}]: {p.label} · {model} — "
+        anchored = isinstance(screen, dict) and screen.get("root") is not None
+        self._log(f"→ /describe [{platform or 'both'} · "
+                  f"{'json' if anchored else detail}]: {p.label} · {model} — "
                   f"scheda di stile dal PNG"
+                  f"{' + JSON' if anchored else ''}"
                   f"{' + contesto utente' if context else ''}")
-        for m in build_describe_messages(preview_base64, context, platform,
-                                         detail=detail):
+        if anchored:
+            prompt_messages = build_describe_json_messages(
+                screen, preview_base64, context, platform)
+        else:
+            prompt_messages = build_describe_messages(
+                preview_base64, context, platform, detail=detail)
+        for m in prompt_messages:
             content = m.get("content", "")
             if isinstance(content, list):
                 content = "\n".join(p.get("text", "") for p in content
@@ -190,9 +202,13 @@ class Bridge:
             self._log_block(f"PROMPT → AI [{m.get('role')}]", str(content))
         t0 = time.monotonic()
         try:
-            result = describe_image(lambda ms: _ai.chat(p, model, ms, config),
-                                    preview_base64, context, platform,
-                                    detail=detail)
+            if anchored:
+                result = describe_json(lambda ms: _ai.chat(p, model, ms, config),
+                                       screen, preview_base64, context, platform)
+            else:
+                result = describe_image(lambda ms: _ai.chat(p, model, ms, config),
+                                        preview_base64, context, platform,
+                                        detail=detail)
             text = result["text"].strip()
             self._log_block("RISPOSTA ← AI (scheda stile)", text)
             self._log(f"  ✓ scheda ricevuta in {time.monotonic() - t0:.1f}s "
@@ -661,7 +677,8 @@ def make_handler(bridge: Bridge):
                 self._send(200, bridge.ai_describe(
                     payload.get("preview_base64"), context=payload.get("context"),
                     platform=payload.get("platform"),
-                    detail=payload.get("detail", "short")))
+                    detail=payload.get("detail", "short"),
+                    screen=payload.get("screen")))
             elif self.path == "/client-log":
                 # eventi lato Figma (selezione frame, D43): solo log, nessuna scrittura
                 self._send(200, bridge.client_log(payload.get("message", "")))

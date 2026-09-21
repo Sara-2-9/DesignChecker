@@ -93,6 +93,50 @@ Regole: ogni affermazione deve ancorarsi a un elemento visibile ("si vede
 in..."). Se un dettaglio non si vede, scrivilo invece di inventarlo.
 Niente testo fuori dalle sezioni. Massimo 800 parole."""
 
+DESCRIBE_JSON_SYSTEM = """Sei un design critic che descrive interfacce mobile incrociando due fonti:
+il PNG (cio' che l'utente vede davvero: pesi, ritmo, mood, stati) e lo
+SCREEN JSON compatto (i valori esatti: hex, misure, nomi nodi, token).
+Scrivi in italiano, in Markdown. Analizza DALL'ALTO IN BASSO, zona per zona.
+Segui ESATTAMENTE queste sezioni:
+
+## Sintesi
+Tre righe: che schermata sembra, scopo apparente, stile generale.
+
+## Zona per zona
+Dall'alto in basso, una sottosezione ### per area visiva: cosa contiene,
+rapporti tra elementi, e — tra parentesi — i valori esatti dal JSON
+(hex, misure, nomi nodi) quando li confermano.
+
+## Palette
+Colori con ruolo, citando gli hex dal JSON (quelli sono misurati, puoi
+scriverli). Distingui token ({{...}}) da hex nudi.
+
+## Tipografia
+Misure esatte dal JSON (fontSize, famiglia, peso) + come si percepiscono
+nel PNG. Rapporti tra i livelli.
+
+## Componenti e stati
+Elementi e stato apparente, con id nodi dal JSON tra parentesi.
+
+## Concordanze e discordanze
+Dove JSON e PNG si confermano e dove discordano (es. struttura che dice
+una cosa, occhio che ne vede un'altra). Questa sezione e' il cuore:
+solo cio' che emerge dall'incrocio, niente riempitivi.
+
+## Gerarchia in 3 secondi
+Dove va l'occhio prima, poi, alla fine. Solo osservazione.
+
+## Stile e mood
+Tema, linguaggio, angoli, materiali, sensazione generale, un aggettivo.
+
+## Piattaforma
+{platform_line}
+
+Regole: ogni affermazione visiva si ancora a un elemento ("si vede in...");
+ogni valore (hex, misura, id) viene SOLO dal JSON, mai inventato. Se PNG e
+JSON discordano, fidati del PNG per il percepito e segnalalo. Niente testo
+fuori dalle sezioni. Massimo 900 parole."""
+
 PLATFORM_LINES = {
     "ios": "Valuta quanto il design parla il dialetto iOS (materiali, corner continui, sheet, SF Symbols, safe-area).",
     "android": "Valuta quanto il design parla Material 3 expressive (superfici tonali, FAB, forme, stati).",
@@ -142,4 +186,41 @@ def describe_image(chat_fn, preview_base64: str,
     Ritorna {"text": ...}. Non scrive mai file: quello lo fa la CLI."""
     messages = build_describe_messages(preview_base64, context, platform,
                                        mime, detail)
+    return {"text": parse_describe(chat_fn(messages))}
+
+
+def build_describe_json_messages(screen: dict, preview_base64: str,
+                                 context: str | None = None,
+                                 platform: str | None = None,
+                                 mime: str = "image/png") -> list:
+    """Messaggi per la scheda ancorata: PNG + screen compattato.
+    Lo slim riusa _slim_node dei subagents (stessa forma compatta dei figli):
+    id/tipi/testi/layout/stili, meta rumorose rimosse."""
+    import json as _json
+    from .evaluator.subagents import _slim_node
+    from .evaluator.vision import user_content_with_image
+    system = DESCRIBE_JSON_SYSTEM.format(
+        platform_line=PLATFORM_LINES.get(platform or "", PLATFORM_LINES["both"]))
+    user_text = ""
+    if (context or "").strip():
+        user_text += ("CONTESTO DELL'APP (descrizione dell'utente, usala per "
+                      "capire le scelte):\n\"\"\"" + context.strip() + "\"\"\"\n\n")
+    user_text += ("Descrivi questa schermata incrociando PNG e JSON. "
+                  "SCREEN COMPATTO:\n"
+                  + _json.dumps(_slim_node(screen.get("root", {}) or {}),
+                                ensure_ascii=False))
+    return [
+        {"role": "system", "content": system},
+        {"role": "user",
+         "content": user_content_with_image(user_text, preview_base64, mime)},
+    ]
+
+
+def describe_json(chat_fn, screen: dict, preview_base64: str,
+                  context: str | None = None,
+                  platform: str | None = None,
+                  mime: str = "image/png") -> dict:
+    """Scheda ancorata PNG+JSON. Ritorna {"text": ...}, mai scritture."""
+    messages = build_describe_json_messages(screen, preview_base64,
+                                            context, platform, mime)
     return {"text": parse_describe(chat_fn(messages))}

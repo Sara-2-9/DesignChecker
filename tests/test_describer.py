@@ -6,8 +6,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from designchecker.describer import (build_describe_messages, describe_image,
-                                     parse_describe)
+from designchecker.describer import (build_describe_json_messages,
+                                     build_describe_messages, describe_image,
+                                     describe_json, parse_describe)
 
 
 class TestDescribePrompt(unittest.TestCase):
@@ -54,6 +55,45 @@ class TestDescribeImage(unittest.TestCase):
             return "## Sintesi\nBella schermata"
         out = describe_image(chat, "QUJD", platform="ios")
         self.assertEqual(out["text"], "## Sintesi\nBella schermata")
+        self.assertTrue(seen)
+
+
+def _json_screen():
+    return {"schema_version": "0.1.0", "meta": {"id": "s"},
+            "root": {"id": "r", "type": "Screen",
+                     "layout": {"frame": {"x": 0, "y": 0, "w": 100, "h": 100}},
+                     "style": {"background": "#000000"},
+                     "children": [
+                         {"id": "cta", "type": "Button",
+                          "props": {"label": "Vai", "min_height": 48},
+                          "layout": {"frame": {"x": 10, "y": 10,
+                                              "w": 80, "h": 48}},
+                          "style": {"background": "#0088FF"}}]}}
+
+
+class TestDescribeJson(unittest.TestCase):
+    def test_prompt_contiene_png_e_json_e_concordanze(self):
+        msgs = build_describe_json_messages(_json_screen(), "QUJD",
+                                            platform="ios")
+        system = msgs[0]["content"]
+        self.assertIn("Concordanze e discordanze", system)
+        self.assertIn("Zona per zona", system)
+        user = msgs[1]["content"]
+        self.assertIsInstance(user, list)
+        self.assertTrue(any(p.get("type") == "image_url" for p in user))
+        text = "\n".join(p.get("text", "") for p in user
+                         if isinstance(p, dict) and p.get("type") == "text")
+        self.assertIn("cta", text)  # screen compattato allegato
+        self.assertIn("#0088FF", text)  # valori esatti citabili
+
+    def test_stub_ritorna_testo_ancorato(self):
+        seen = []
+
+        def chat(msgs):
+            seen.append(msgs)
+            return "## Sintesi\nCTA blu #0088FF"
+        out = describe_json(chat, _json_screen(), "QUJD")
+        self.assertIn("#0088FF", out["text"])
         self.assertTrue(seen)
 
 
